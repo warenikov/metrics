@@ -10,8 +10,6 @@ import (
 	"net/http"
 )
 
-const ContentTypeText = "text/plain"
-
 type Handler struct {
 	svc service.Service
 }
@@ -33,7 +31,7 @@ func MustStart(cfg *config.Config, svc service.Service) {
 }
 
 func (h *Handler) UpdateHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Content-Type") != ContentTypeText {
+	if r.Header.Get("Content-Type") != models.ContentTypeText {
 		http.Error(w, "Content type not supported", http.StatusBadRequest)
 		return
 	}

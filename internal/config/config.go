@@ -8,15 +8,19 @@ import (
 )
 
 type Config struct {
-	ServerAddr string `json:"server_addr"`
-	ServerPort string `json:"server_port"`
+	ServerAddr     string `json:"server_addr"`
+	ServerPort     string `json:"server_port"`
+	ReportInterval int    `json:"report_interval"`
+	PollInterval   int    `json:"poll_interval"`
 }
 
 func LoadConfig() *Config {
 	//устанавливаем значение по умолчанию
 	cfg := &Config{
-		ServerAddr: "localhost",
-		ServerPort: "8081",
+		ServerAddr:     "localhost",
+		ServerPort:     "8080",
+		ReportInterval: 10,
+		PollInterval:   2,
 	}
 
 	//получаем конфиг из файла json
