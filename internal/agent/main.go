@@ -5,11 +5,10 @@ import (
 	"math/rand/v2"
 	"metrics/internal/config"
 	models "metrics/internal/model"
+	"metrics/internal/utils"
 	"net/http"
 	"reflect"
 	"runtime"
-	"strconv"
-	"sync"
 	"time"
 )
 
@@ -49,39 +48,36 @@ type CounterMertics struct {
 }
 
 type MetricaAgent struct {
-	rm         sync.RWMutex
-	ms         *runtime.MemStats
-	gauges     *GaugeMertics
-	counters   *CounterMertics
-	pollTicker *time.Ticker
-	sendTicker *time.Ticker
-	serverAddr string
+	ms           *runtime.MemStats
+	gauges       *GaugeMertics
+	counters     *CounterMertics
+	pollInterval time.Duration
+	sendInterval time.Duration
+	serverAddr   string
 }
 
 func NewMetricaAgent(cfg *config.Config) *MetricaAgent {
 	srv := fmt.Sprintf("http://%s:%s", cfg.ServerAddr, cfg.ServerPort)
 	return &MetricaAgent{
-		ms:         &runtime.MemStats{},
-		gauges:     &GaugeMertics{},
-		counters:   &CounterMertics{},
-		pollTicker: time.NewTicker(time.Duration(cfg.PollInterval) * time.Second),
-		sendTicker: time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second),
-		serverAddr: srv,
+		ms:           &runtime.MemStats{},
+		gauges:       &GaugeMertics{},
+		counters:     &CounterMertics{},
+		pollInterval: time.Duration(cfg.PollInterval) * time.Second,
+		sendInterval: time.Duration(cfg.ReportInterval) * time.Second,
+		serverAddr:   srv,
 	}
 }
 
 func (m *MetricaAgent) Run() {
+	var timePassed time.Duration
 	for {
-		select {
-		case <-m.pollTicker.C:
-			m.Poll()
-			//TODO: тут логирование
-			fmt.Println("Метрики собраны")
-		case <-m.sendTicker.C:
+		m.Poll()
+		timePassed += m.pollInterval
+		if timePassed >= m.sendInterval {
 			m.Send()
-			//TODO: тут логирование
-			fmt.Println("Метрики отправлены")
+			timePassed = 0
 		}
+		time.Sleep(m.pollInterval)
 	}
 }
 
@@ -94,9 +90,6 @@ func (m *MetricaAgent) Poll() error {
 }
 
 func (m *MetricaAgent) collectMertics() {
-	m.rm.Lock()
-	defer m.rm.Unlock()
-
 	src := reflect.ValueOf(m.ms).Elem()
 	dst := reflect.ValueOf(m.gauges).Elem()
 	for i := 0; i < dst.NumField(); i++ {
@@ -122,7 +115,7 @@ func (m *MetricaAgent) Send() {
 	for i := 0; i < gauge.NumField(); i++ {
 		fieldName := gauge.Type().Field(i).Name
 		fieldValue := gauge.Field(i)
-		url := fmt.Sprintf("/update/gauge/%s/%s", fieldName, strconv.FormatFloat(fieldValue.Float(), 'f', -1, 64))
+		url := fmt.Sprintf("/update/gauge/%s/%s", fieldName, utils.Float64ToString(fieldValue.Float()))
 		m.sender(m.serverAddr, url)
 	}
 
@@ -131,7 +124,7 @@ func (m *MetricaAgent) Send() {
 	for i := 0; i < counters.NumField(); i++ {
 		fieldName := counters.Type().Field(i).Name
 		fieldValue := counters.Field(i)
-		url := fmt.Sprintf("/update/counter/%s/%d", fieldName, fieldValue.Int())
+		url := fmt.Sprintf("/update/counter/%s/%d", fieldName, utils.Int64ToString(fieldValue.Int()))
 		m.sender(m.serverAddr, url)
 	}
 }

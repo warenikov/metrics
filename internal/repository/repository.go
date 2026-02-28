@@ -5,8 +5,10 @@ import (
 )
 
 type Repository interface {
-	UpdateCauges(m models.Metrics) (models.Metrics, error)
+	UpdateGauges(m models.Metrics) (models.Metrics, error)
 	UpdateCounter(m models.Metrics) (models.Metrics, error)
+	GetMetrica(m models.Metrics) (*models.Metrics, error)
+	GetListMetrics() ([]models.Metrics, error)
 }
 
 type MemStorage struct {
@@ -19,7 +21,7 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
-func (s *MemStorage) UpdateCauges(m models.Metrics) (models.Metrics, error) {
+func (s *MemStorage) UpdateGauges(m models.Metrics) (models.Metrics, error) {
 	s.metrics[m.ID] = m
 	return m, nil
 }
@@ -32,4 +34,20 @@ func (s *MemStorage) UpdateCounter(m models.Metrics) (models.Metrics, error) {
 	m.Delta = &newVal
 	s.metrics[m.ID] = m
 	return m, nil
+}
+
+func (s *MemStorage) GetMetrica(m models.Metrics) (*models.Metrics, error) {
+	mm, ok := s.metrics[m.ID]
+	if !ok {
+		return nil, models.ErrMetricNotFound
+	}
+	return &mm, nil
+}
+
+func (s *MemStorage) GetListMetrics() ([]models.Metrics, error) {
+	res := make([]models.Metrics, 0, len(s.metrics))
+	for _, m := range s.metrics {
+		res = append(res, m)
+	}
+	return res, nil
 }

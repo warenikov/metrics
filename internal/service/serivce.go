@@ -8,15 +8,41 @@ import (
 
 type Service interface {
 	ParseAndSave(mType, id, value string) (models.Metrics, error)
+	GetMetrica(mType, id string) (*models.Metrics, error)
+	GetListMetrics() ([]models.Metrics, error)
 }
 
 type MetricsService struct {
 	repo storage.Repository
 }
 
+func (s *MetricsService) GetListMetrics() ([]models.Metrics, error) {
+	return s.repo.GetListMetrics()
+}
+
 // NewMetricsService — конструктор, принимающий интерфейс репозитория
 func NewMetricsService(r storage.Repository) *MetricsService {
 	return &MetricsService{repo: r}
+}
+
+func (s *MetricsService) GetMetrica(mType, id string) (*models.Metrics, error) {
+	query := models.Metrics{
+		ID:    id,
+		MType: mType,
+	}
+
+	res, err := s.repo.GetMetrica(query)
+	if err != nil {
+		//TODO: логирование + обратка ошибок
+		return nil, err
+	}
+
+	if res.MType != mType {
+		//TODO: логирование + обратка ошибок
+		return nil, models.ErrMetricNotFound
+	}
+
+	return res, nil
 }
 
 // ParseAndSave берет сырые строки из хендлера, превращает в модель и отдает в репо
@@ -35,7 +61,7 @@ func (s *MetricsService) ParseAndSave(mType, id, value string) (models.Metrics, 
 		}
 		metric.Value = &v
 
-		return s.repo.UpdateCauges(metric)
+		return s.repo.UpdateGauges(metric)
 
 	case models.Counter:
 		v, err := strconv.ParseInt(value, 10, 64)

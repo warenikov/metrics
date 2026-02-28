@@ -8,7 +8,6 @@ import (
 func main() {
 	cfg := config.LoadConfig()
 	agent := agent.NewMetricaAgent(cfg)
-	go agent.Run()
+	agent.Run()
 
-	select {}
 }
