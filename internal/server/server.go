@@ -18,6 +18,7 @@ type Handler struct {
 func MustStart(cfg *config.Config, h handler.MetricsHandler) {
 	r := chi.NewRouter()
 	r.Post("/update/{type}/{name}/{value}", h.Update)
+
 	r.Get("/value/{type}/{name}", h.GetMetrica)
 	r.Get("/", h.GetMetricsList)
 
