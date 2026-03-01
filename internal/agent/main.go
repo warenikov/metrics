@@ -124,7 +124,7 @@ func (m *MetricaAgent) Send() {
 	for i := 0; i < counters.NumField(); i++ {
 		fieldName := counters.Type().Field(i).Name
 		fieldValue := counters.Field(i)
-		url := fmt.Sprintf("/update/counter/%s/%d", fieldName, utils.Int64ToString(fieldValue.Int()))
+		url := fmt.Sprintf("/update/counter/%s/%s", fieldName, utils.Int64ToString(fieldValue.Int()))
 		m.sender(m.serverAddr, url)
 	}
 }
