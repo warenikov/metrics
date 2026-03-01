@@ -48,10 +48,10 @@ func NewHandler(svc service.Service) MetricsHandler {
 }
 
 func (h *handler) Update(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Content-Type") != models.ContentTypeText {
-		http.Error(w, "Content type not supported", http.StatusBadRequest)
-		return
-	}
+	//if r.Header.Get("Content-Type") != models.ContentTypeText {
+	//	http.Error(w, "Content type not supported", http.StatusBadRequest)
+	//	return
+	//}
 
 	mType := chi.URLParam(r, "type")
 	mName := chi.URLParam(r, "name")
