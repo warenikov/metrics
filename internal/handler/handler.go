@@ -110,6 +110,8 @@ func (h *handler) GetMetrica(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, e.Error(), http.StatusBadRequest)
 		case errors.Is(e, models.ErrInvalidValue):
 			http.Error(w, "Bad request", http.StatusBadRequest)
+		case errors.Is(e, models.ErrMetricNotFound):
+			http.Error(w, "Bad request", http.StatusNotFound)
 		default:
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
