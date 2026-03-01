@@ -55,10 +55,10 @@ func loadFromFile(cfg *Config, path string) error {
 }
 
 func loadFromCLI(cfg *Config) {
-	flag.StringVar(&cfg.ServerAddr, "a", cfg.ServerAddr, "HTTP address")
-	flag.StringVar(&cfg.ServerPort, "p", cfg.ServerPort, "HTTP port")
-	flag.IntVar(&cfg.ReportInterval, "r", cfg.ReportInterval, "Reporting interval in seconds")
-	flag.IntVar(&cfg.PollInterval, "p", cfg.PollInterval, "Polling interval in seconds")
+	flag.StringVar(&cfg.ServerAddr, "a", "localhost", "HTTP address")
+	flag.StringVar(&cfg.ServerPort, "p", "8080", "HTTP port")
+	flag.IntVar(&cfg.ReportInterval, "r", 10, "Reporting interval in seconds")
+	flag.IntVar(&cfg.PollInterval, "p", 2, "Polling interval in seconds")
 
 	flag.Parse()
 
