@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"log"
 	"metrics/internal/config"
 	"metrics/internal/handler"
@@ -22,7 +21,7 @@ func MustStart(cfg *config.Config, h handler.MetricsHandler) {
 	r.Get("/value/{type}/{name}", h.GetMetrica)
 	r.Get("/", h.GetMetricsList)
 
-	addr := fmt.Sprintf("%s", cfg.ServerAddr)
+	addr := cfg.ServerAddr
 
 	log.Printf("Запуск сервера на http://%s", addr)
 

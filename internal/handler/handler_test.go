@@ -114,8 +114,8 @@ func TestHandler_GetMetrica(t *testing.T) {
 	svc := service.NewMetricsService(repo)
 	h := NewHandler(svc)
 
-	var valCounter int64 = 10   // Явно указываем int64
-	var valGauge float64 = 10.5 // Явно указываем int64
+	var valCounter int64 = 10 // Явно указываем int64
+	var valGauge = 10.5       // Явно указываем int64
 	repo.UpdateGauges(models.Metrics{ID: "TestGauge", MType: models.Gauge, Value: &valGauge})
 	repo.UpdateCounter(models.Metrics{ID: "TestName", MType: models.Counter, Delta: &valCounter})
 	repo.UpdateCounter(models.Metrics{ID: "TestCounter", MType: models.Counter, Delta: &valCounter})
