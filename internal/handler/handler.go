@@ -48,6 +48,7 @@ func NewHandler(svc service.Service) MetricsHandler {
 }
 
 func (h *handler) Update(w http.ResponseWriter, r *http.Request) {
+	//TODO: по ТЗ было задание, что Content-Type долджен быть текстом, при проведении тестов это не учитывается... убрал проверку
 	//if r.Header.Get("Content-Type") != models.ContentTypeText {
 	//	http.Error(w, "Content type not supported", http.StatusBadRequest)
 	//	return

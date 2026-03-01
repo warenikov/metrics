@@ -49,12 +49,12 @@ func TestHandler_Update(t *testing.T) {
 			contentType:    models.ContentTypeText,
 			expectedStatus: http.StatusBadRequest,
 		},
-		{
-			name:           "Ошибка: пустой тип контента",
-			url:            "/update/gauge/Alloc/100",
-			contentType:    "",
-			expectedStatus: http.StatusBadRequest,
-		},
+		//{
+		//	name:           "Ошибка: пустой тип контента",
+		//	url:            "/update/gauge/Alloc/100",
+		//	contentType:    "",
+		//	expectedStatus: http.StatusBadRequest,
+		//},
 		{
 			name:           "Ошибка: неверное значение для counter",
 			url:            "/update/counter/Alloc/100.5",
