@@ -37,29 +37,22 @@ func LoadConfig() *Config {
 }
 
 func loadFromFile(cfg *Config, path string) error {
-	file, err := os.Open(path)
-
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	if file, err = os.Open(path); err == nil {
+	if file, err := os.Open(path); err == nil {
 		defer file.Close()
 		if err = json.NewDecoder(file).Decode(cfg); err != nil {
 			return err
 		}
 		return nil
+	} else {
+		return err
 	}
-	return err
 }
 
 func loadFromCLI(cfg *Config) {
-	flag.StringVar(&cfg.ServerAddr, "a", "localhost", "HTTP address")
-	flag.StringVar(&cfg.ServerPort, "p", "8080", "HTTP port")
-	flag.IntVar(&cfg.ReportInterval, "r", 10, "Reporting interval in seconds")
-	flag.IntVar(&cfg.PollInterval, "p", 2, "Polling interval in seconds")
+	flag.StringVar(&cfg.ServerAddr, "a", cfg.ServerAddr, "HTTP address")
+	flag.StringVar(&cfg.ServerPort, "p", cfg.ServerPort, "HTTP port")
+	flag.IntVar(&cfg.ReportInterval, "ri", cfg.ReportInterval, "Reporting interval in seconds")
+	flag.IntVar(&cfg.PollInterval, "pi", cfg.PollInterval, "Polling interval in seconds")
 
 	flag.Parse()
-
 }
