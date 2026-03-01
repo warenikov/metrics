@@ -57,7 +57,7 @@ type MetricaAgent struct {
 }
 
 func NewMetricaAgent(cfg *config.Config) *MetricaAgent {
-	srv := fmt.Sprintf("http://%s:%s", cfg.ServerAddr, cfg.ServerPort)
+	srv := fmt.Sprintf("http://%s", cfg.ServerAddr)
 	return &MetricaAgent{
 		ms:           &runtime.MemStats{},
 		gauges:       &GaugeMertics{},

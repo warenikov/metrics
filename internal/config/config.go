@@ -9,7 +9,6 @@ import (
 
 type Config struct {
 	ServerAddr     string `json:"server_addr"`
-	ServerPort     string `json:"server_port"`
 	ReportInterval int    `json:"report_interval"`
 	PollInterval   int    `json:"poll_interval"`
 }
@@ -17,8 +16,7 @@ type Config struct {
 func LoadConfig() *Config {
 	//устанавливаем значение по умолчанию
 	cfg := &Config{
-		ServerAddr:     "localhost",
-		ServerPort:     "8080",
+		ServerAddr:     "localhost:8080",
 		ReportInterval: 10,
 		PollInterval:   2,
 	}
@@ -50,7 +48,6 @@ func loadFromFile(cfg *Config, path string) error {
 
 func loadFromCLI(cfg *Config) {
 	flag.StringVar(&cfg.ServerAddr, "a", cfg.ServerAddr, "HTTP address")
-	flag.StringVar(&cfg.ServerPort, "p", cfg.ServerPort, "HTTP port")
 	flag.IntVar(&cfg.ReportInterval, "ri", cfg.ReportInterval, "Reporting interval in seconds")
 	flag.IntVar(&cfg.PollInterval, "pi", cfg.PollInterval, "Polling interval in seconds")
 

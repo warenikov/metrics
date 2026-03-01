@@ -22,7 +22,7 @@ func MustStart(cfg *config.Config, h handler.MetricsHandler) {
 	r.Get("/value/{type}/{name}", h.GetMetrica)
 	r.Get("/", h.GetMetricsList)
 
-	addr := fmt.Sprintf("%s:%s", cfg.ServerAddr, cfg.ServerPort)
+	addr := fmt.Sprintf("%s", cfg.ServerAddr)
 
 	log.Printf("Запуск сервера на http://%s", addr)
 
