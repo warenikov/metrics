@@ -131,11 +131,11 @@ func (m *MetricaAgent) Send() {
 
 func (m *MetricaAgent) sender(addr, url string) bool {
 	r, e := http.Post(fmt.Sprintf("%s%s", addr, url), models.ContentTypeText, nil)
-	defer r.Body.Close()
 	if e != nil {
 		fmt.Printf("Ошибка при отправке метрик %s , ошибка %v\n", url, e)
 		return false
 	}
+	defer r.Body.Close()
 
 	if r.StatusCode != http.StatusOK {
 		fmt.Printf("Ошибка при отправке метрик %s , код ответа севрера %d\n", url, r.StatusCode)
@@ -144,6 +144,4 @@ func (m *MetricaAgent) sender(addr, url string) bool {
 		fmt.Printf("Метрика отправлена %s\n", url)
 		return true
 	}
-
-	return true
 }
