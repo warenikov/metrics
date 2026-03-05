@@ -140,7 +140,7 @@ func TestHandler_GetMetrica(t *testing.T) {
 		{
 			name:           "Запрос метрики c неверным типом",
 			url:            "/value/gauge/TestName",
-			expectedStatus: http.StatusNotFound,
+			expectedStatus: http.StatusBadRequest,
 		},
 	}
 
