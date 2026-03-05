@@ -46,7 +46,7 @@ func (h *Handler) GetMetricsList(w http.ResponseWriter, r *http.Request) {
 	metrics, err := h.svc.GetListMetrics()
 	if err != nil {
 		log.Printf("Failed to get metrics list: %v", err)
-		http.StatusText(http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
@@ -90,7 +90,7 @@ func (h *Handler) GetMetrica(w http.ResponseWriter, r *http.Request) {
 	mName := chi.URLParam(r, "name")
 
 	if mName == "" || mType == "" {
-		http.StatusText(http.StatusBadRequest)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
