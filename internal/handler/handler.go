@@ -2,86 +2,82 @@ package handler
 
 import (
 	"errors"
-	"fmt"
+	"html/template"
+	"log"
 	models "metrics/internal/model"
-	"metrics/internal/service"
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
 
-type MetricsHandler interface {
-	Update(w http.ResponseWriter, r *http.Request)
-	GetMetrica(w http.ResponseWriter, r *http.Request)
-	GetMetricsList(w http.ResponseWriter, r *http.Request)
+const metricsTemplate = `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Metrics</title>
+</head>
+<body>
+    <h1>Current Metrics</h1>
+    <ul>
+        {{range .}}
+        <li>{{.ID}} ({{.MType}}): {{.ValueString}}</li>
+        {{end}}
+    </ul>
+</body>
+</html>`
+
+var tmpl = template.Must(template.New("metrics").Parse(metricsTemplate))
+
+type Service interface {
+	ParseAndSave(mType, id, value string) (models.Metrics, error)
+	GetMetrica(mType, id string) (*models.Metrics, error)
+	GetListMetrics() ([]models.Metrics, error)
 }
 
-type handler struct {
-	svc service.Service
+type Handler struct {
+	svc Service
 }
 
-func (h *handler) GetMetricsList(w http.ResponseWriter, r *http.Request) {
+func NewHandler(svc Service) *Handler {
+	return &Handler{svc: svc}
+}
+
+func (h *Handler) GetMetricsList(w http.ResponseWriter, r *http.Request) {
 	metrics, err := h.svc.GetListMetrics()
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		log.Printf("Failed to get metrics list: %v", err)
+		http.StatusText(http.StatusInternalServerError)
 		return
 	}
 
-	var sb strings.Builder
-	sb.WriteString("<html><head><title>Metrics</title></head><body>")
-	sb.WriteString("<h1>Current Metrics</h1><ul>")
-
-	for _, m := range metrics {
-		fmt.Fprintf(&sb, "<li>%s (%s): %s</li>", m.ID, m.MType, m.ValueString())
-	}
-
-	sb.WriteString("</ul></body></html>")
-
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(sb.String()))
+	if err = tmpl.Execute(w, metrics); err != nil {
+		log.Printf("failed to execute template: %v", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
 }
 
-func NewHandler(svc service.Service) MetricsHandler {
-	return &handler{svc: svc}
-}
-
-func (h *handler) Update(w http.ResponseWriter, r *http.Request) {
-	//TODO: по ТЗ было задание, что Content-Type долджен быть текстом, при проведении тестов это не учитывается... убрал проверку
-	//if r.Header.Get("Content-Type") != models.ContentTypeText {
-	//	http.Error(w, "Content type not supported", http.StatusBadRequest)
-	//	return
-	//}
-
+func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	mType := chi.URLParam(r, "type")
 	mName := chi.URLParam(r, "name")
 	mValue := chi.URLParam(r, "value")
 
-	if mName == "" {
-		http.Error(w, "Metric name is missing", http.StatusBadRequest)
-		return
-	}
-
-	if mType == "" {
-		http.Error(w, "Metric type is missing", http.StatusBadRequest)
-		return
-	}
-
-	if mValue == "" {
-		http.Error(w, "Metric value is missing", http.StatusBadRequest)
+	if mName == "" || mValue == "" || mType == "" {
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
 	_, err := h.svc.ParseAndSave(mType, mName, mValue)
 	if err != nil {
 		switch {
-		case errors.Is(err, models.ErrInvalidMetricType):
-			http.Error(w, err.Error(), http.StatusBadRequest)
-		case errors.Is(err, models.ErrInvalidValue):
-			http.Error(w, "Bad request: value must be a number", http.StatusBadRequest)
+		case errors.Is(err, models.ErrInvalidMetricType) || errors.Is(err, models.ErrInvalidValue):
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		case errors.Is(err, models.ErrMetricNotFound):
+			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		default:
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			log.Printf("Internal Server Error %v", err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -89,32 +85,26 @@ func (h *handler) Update(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *handler) GetMetrica(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetMetrica(w http.ResponseWriter, r *http.Request) {
 	mType := chi.URLParam(r, "type")
 	mName := chi.URLParam(r, "name")
 
-	if mName == "" {
-		http.Error(w, "Metric name is missing", http.StatusBadRequest)
+	if mName == "" || mType == "" {
+		http.StatusText(http.StatusBadRequest)
 		return
 	}
 
-	if mType == "" {
-		http.Error(w, "Metric type is missing", http.StatusBadRequest)
-		return
-	}
+	mm, err := h.svc.GetMetrica(mType, mName)
 
-	mm, e := h.svc.GetMetrica(mType, mName)
-
-	if e != nil {
+	if err != nil {
 		switch {
-		case errors.Is(e, models.ErrInvalidMetricType):
-			http.Error(w, e.Error(), http.StatusBadRequest)
-		case errors.Is(e, models.ErrInvalidValue):
-			http.Error(w, "Bad request", http.StatusBadRequest)
-		case errors.Is(e, models.ErrMetricNotFound):
-			http.Error(w, "Bad request", http.StatusNotFound)
+		case errors.Is(err, models.ErrInvalidMetricType) || errors.Is(err, models.ErrInvalidValue):
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		case errors.Is(err, models.ErrMetricNotFound):
+			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		default:
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			log.Printf("Internal Server Error %v", err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 		return
 	}

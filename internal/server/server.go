@@ -3,7 +3,6 @@ package server
 import (
 	"log"
 	"metrics/internal/config"
-	"metrics/internal/handler"
 	"metrics/internal/service"
 	"net/http"
 
@@ -11,10 +10,16 @@ import (
 )
 
 type Handler struct {
-	svc service.Service
+	svc service.MetricsService
 }
 
-func MustStart(cfg *config.Config, h handler.MetricsHandler) {
+type MetricsHandler interface {
+	Update(w http.ResponseWriter, r *http.Request)
+	GetMetrica(w http.ResponseWriter, r *http.Request)
+	GetMetricsList(w http.ResponseWriter, r *http.Request)
+}
+
+func Start(cfg *config.Config, h MetricsHandler) error {
 	r := chi.NewRouter()
 	r.Post("/update/{type}/{name}/{value}", h.Update)
 
@@ -23,10 +28,11 @@ func MustStart(cfg *config.Config, h handler.MetricsHandler) {
 
 	addr := cfg.ServerAddr
 
-	log.Printf("Запуск сервера на http://%s", addr)
+	log.Printf("Try start server on http://%s", addr)
 
 	if err := http.ListenAndServe(addr, r); err != nil {
-		log.Fatalf("Ошибка сервера: %v", err)
-		panic(err)
+		return err
 	}
+
+	return nil
 }

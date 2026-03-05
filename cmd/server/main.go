@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"metrics/internal/config"
 	"metrics/internal/handler"
 	storage "metrics/internal/repository"
@@ -17,5 +18,8 @@ func main() {
 	h := handler.NewHandler(svc)
 
 	//запустить сервер с конфигом
-	server.MustStart(cfg, h)
+	err := server.Start(cfg, h)
+	if err != nil {
+		log.Fatal(err)
+	}
 }

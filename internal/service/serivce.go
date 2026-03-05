@@ -1,19 +1,20 @@
 package service
 
 import (
+	"fmt"
 	"metrics/internal/model"
-	"metrics/internal/repository"
 	"strconv"
 )
 
-type Service interface {
-	ParseAndSave(mType, id, value string) (models.Metrics, error)
-	GetMetrica(mType, id string) (*models.Metrics, error)
-	GetListMetrics() ([]models.Metrics, error)
+type MetricsService struct {
+	repo Repository
 }
 
-type MetricsService struct {
-	repo storage.Repository
+type Repository interface {
+	UpdateGauges(m models.Metrics) (models.Metrics, error)
+	UpdateCounter(m models.Metrics) (models.Metrics, error)
+	GetMetrica(m models.Metrics) (*models.Metrics, error)
+	GetListMetrics() ([]models.Metrics, error)
 }
 
 func (s *MetricsService) GetListMetrics() ([]models.Metrics, error) {
@@ -21,7 +22,7 @@ func (s *MetricsService) GetListMetrics() ([]models.Metrics, error) {
 }
 
 // NewMetricsService — конструктор, принимающий интерфейс репозитория
-func NewMetricsService(r storage.Repository) *MetricsService {
+func NewMetricsService(r Repository) *MetricsService {
 	return &MetricsService{repo: r}
 }
 
@@ -57,7 +58,7 @@ func (s *MetricsService) ParseAndSave(mType, id, value string) (models.Metrics, 
 		v, err := strconv.ParseFloat(value, 64)
 		if err != nil {
 			//TODO: логирование + обратка ошибок
-			return metric, models.ErrInvalidValue
+			return metric, fmt.Errorf("%w: %v", models.ErrInvalidValue, err)
 		}
 		metric.Value = &v
 
@@ -67,7 +68,7 @@ func (s *MetricsService) ParseAndSave(mType, id, value string) (models.Metrics, 
 		v, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
 			//TODO: логирование + обратка ошибок
-			return metric, models.ErrInvalidValue
+			return metric, fmt.Errorf("%w: %v", models.ErrInvalidValue, err)
 		}
 		metric.Delta = &v
 
@@ -75,7 +76,7 @@ func (s *MetricsService) ParseAndSave(mType, id, value string) (models.Metrics, 
 
 	default:
 		//TODO: логирование + обратка ошибок
-		return metric, models.ErrInvalidMetricType
+		return metric, fmt.Errorf("%w", models.ErrInvalidMetricType)
 	}
 
 }

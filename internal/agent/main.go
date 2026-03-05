@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"log"
 	"math/rand/v2"
 	"metrics/internal/config"
 	models "metrics/internal/model"
@@ -71,10 +72,11 @@ func NewMetricaAgent(cfg *config.Config) *MetricaAgent {
 func (m *MetricaAgent) Run() {
 	var timePassed time.Duration
 	for {
-		m.Poll()
+		_ = m.Poll()
 		timePassed += m.pollInterval
 		if timePassed >= m.sendInterval {
 			m.Send()
+			m.counters.PollCount = 0 //обнуляем каунтер после отправки
 			timePassed = 0
 		}
 		time.Sleep(m.pollInterval)
@@ -84,12 +86,12 @@ func (m *MetricaAgent) Run() {
 func (m *MetricaAgent) Poll() error {
 	runtime.ReadMemStats(m.ms)
 
-	m.collectMertics()
+	m.collectMerticsReflection()
 
 	return nil
 }
 
-func (m *MetricaAgent) collectMertics() {
+func (m *MetricaAgent) collectMerticsReflection() {
 	src := reflect.ValueOf(m.ms).Elem()
 	dst := reflect.ValueOf(m.gauges).Elem()
 	for i := 0; i < dst.NumField(); i++ {
@@ -101,6 +103,7 @@ func (m *MetricaAgent) collectMertics() {
 				dst.Field(i).SetFloat(float64(fSrc.Uint()))
 			case reflect.Float64:
 				dst.Field(i).SetFloat(fSrc.Float())
+			default:
 			}
 		}
 	}
@@ -109,36 +112,96 @@ func (m *MetricaAgent) collectMertics() {
 	m.counters.PollCount += 1
 }
 
+func (m *MetricaAgent) collectMerticsManual() {
+	m.gauges.Alloc = float64(m.ms.Alloc)
+	m.gauges.BuckHashSys = float64(m.ms.BuckHashSys)
+	m.gauges.Frees = float64(m.ms.Frees)
+	m.gauges.GCCPUFraction = m.ms.GCCPUFraction
+	m.gauges.MSpanSys = float64(m.ms.MSpanSys)
+	m.gauges.GCSys = float64(m.ms.GCSys)
+	m.gauges.HeapAlloc = float64(m.ms.HeapAlloc)
+	m.gauges.HeapIdle = float64(m.ms.HeapIdle)
+	m.gauges.HeapInuse = float64(m.ms.HeapInuse)
+	m.gauges.HeapObjects = float64(m.ms.HeapObjects)
+	m.gauges.HeapReleased = float64(m.ms.HeapReleased)
+	m.gauges.HeapSys = float64(m.ms.HeapSys)
+	m.gauges.LastGC = float64(m.ms.LastGC)
+	m.gauges.Lookups = float64(m.ms.Lookups)
+	m.gauges.MCacheInuse = float64(m.ms.MCacheInuse)
+	m.gauges.MCacheSys = float64(m.ms.MCacheSys)
+	m.gauges.MSpanInuse = float64(m.ms.MSpanInuse)
+	m.gauges.Malloc = float64(m.ms.Mallocs)
+	m.gauges.NextGC = float64(m.ms.NextGC)
+	m.gauges.NumForcedGC = float64(m.ms.NumForcedGC)
+	m.gauges.NumGC = float64(m.ms.NumGC)
+	m.gauges.OtherSys = float64(m.ms.OtherSys)
+	m.gauges.PauseTotalNs = float64(m.ms.PauseTotalNs)
+	m.gauges.StackInuse = float64(m.ms.StackInuse)
+	m.gauges.StackSys = float64(m.ms.StackSys)
+	m.gauges.Sys = float64(m.ms.Sys)
+	m.gauges.TotalAlloc = float64(m.ms.TotalAlloc)
+
+	m.gauges.RandomValue = rand.Float64()
+	m.counters.PollCount += 29 //29 потому что 28 метрик + сам каунтер
+}
+
 func (m *MetricaAgent) Send() {
-	gauge := reflect.ValueOf(m.gauges).Elem()
+	g := m.gauges
+	m.sendGauge("Alloc", g.Alloc)
+	m.sendGauge("BuckHashSys", g.BuckHashSys)
+	m.sendGauge("Frees", g.Frees)
+	m.sendGauge("GCCPUFraction", g.GCCPUFraction)
+	m.sendGauge("GCSys", g.GCSys)
+	m.sendGauge("HeapAlloc", g.HeapAlloc)
+	m.sendGauge("HeapIdle", g.HeapIdle)
+	m.sendGauge("HeapInuse", g.HeapInuse)
+	m.sendGauge("HeapObjects", g.HeapObjects)
+	m.sendGauge("HeapReleased", g.HeapReleased)
+	m.sendGauge("HeapSys", g.HeapSys)
+	m.sendGauge("LastGC", g.LastGC)
+	m.sendGauge("Lookups", g.Lookups)
+	m.sendGauge("MCacheInuse", g.MCacheInuse)
+	m.sendGauge("MCacheSys", g.MCacheSys)
+	m.sendGauge("MSpanInuse", g.MSpanInuse)
+	m.sendGauge("MSpanSys", g.MSpanSys)
+	m.sendGauge("Malloc", g.Malloc)
+	m.sendGauge("NextGC", g.NextGC)
+	m.sendGauge("NumForcedGC", g.NumForcedGC)
+	m.sendGauge("NumGC", g.NumGC)
+	m.sendGauge("OtherSys", g.OtherSys)
+	m.sendGauge("PauseTotalNs", g.PauseTotalNs)
+	m.sendGauge("StackInuse", g.StackInuse)
+	m.sendGauge("StackSys", g.StackSys)
+	m.sendGauge("Sys", g.Sys)
+	m.sendGauge("TotalAlloc", g.TotalAlloc)
+	m.sendGauge("RandomValue", g.RandomValue)
 
-	for i := 0; i < gauge.NumField(); i++ {
-		fieldName := gauge.Type().Field(i).Name
-		fieldValue := gauge.Field(i)
-		url := fmt.Sprintf("/update/gauge/%s/%s", fieldName, utils.Float64ToString(fieldValue.Float()))
-		m.sender(m.serverAddr, url)
-	}
+	// Отправляем Counter метрики
+	m.sendCounter("PollCount", m.counters.PollCount)
+}
 
-	counters := reflect.ValueOf(m.counters).Elem()
+// sendGauge Вспомогательный метод для отправки Gauge
+func (m *MetricaAgent) sendGauge(name string, value float64) {
+	url := fmt.Sprintf("/update/gauge/%s/%s", name, utils.Float64ToString(value))
+	m.sender(m.serverAddr, url)
+}
 
-	for i := 0; i < counters.NumField(); i++ {
-		fieldName := counters.Type().Field(i).Name
-		fieldValue := counters.Field(i)
-		url := fmt.Sprintf("/update/counter/%s/%s", fieldName, utils.Int64ToString(fieldValue.Int()))
-		m.sender(m.serverAddr, url)
-	}
+// sendCounter Вспомогательный метод для отправки Counter
+func (m *MetricaAgent) sendCounter(name string, value int64) {
+	url := fmt.Sprintf("/update/counter/%s/%s", name, utils.Int64ToString(value))
+	m.sender(m.serverAddr, url)
 }
 
 func (m *MetricaAgent) sender(addr, url string) bool {
 	r, e := http.Post(fmt.Sprintf("%s%s", addr, url), models.ContentTypeText, nil)
 	if e != nil {
-		fmt.Printf("Ошибка при отправке метрик %s , ошибка %v\n", url, e)
+		log.Printf("Ошибка при отправке метрик %s , ошибка %v\n", url, e)
 		return false
 	}
 	defer r.Body.Close()
 
 	if r.StatusCode != http.StatusOK {
-		fmt.Printf("Ошибка при отправке метрик %s , код ответа севрера %d\n", url, r.StatusCode)
+		log.Printf("Ошибка при отправке метрик %s , код ответа севрера %d\n", url, r.StatusCode)
 		return false
 	} else {
 		fmt.Printf("Метрика отправлена %s\n", url)

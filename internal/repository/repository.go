@@ -4,13 +4,6 @@ import (
 	"metrics/internal/model"
 )
 
-type Repository interface {
-	UpdateGauges(m models.Metrics) (models.Metrics, error)
-	UpdateCounter(m models.Metrics) (models.Metrics, error)
-	GetMetrica(m models.Metrics) (*models.Metrics, error)
-	GetListMetrics() ([]models.Metrics, error)
-}
-
 type MemStorage struct {
 	metrics map[string]models.Metrics
 }
@@ -27,6 +20,10 @@ func (s *MemStorage) UpdateGauges(m models.Metrics) (models.Metrics, error) {
 }
 
 func (s *MemStorage) UpdateCounter(m models.Metrics) (models.Metrics, error) {
+	if m.Delta == nil {
+		return m, models.ErrInvalidValue
+	}
+
 	newVal := *m.Delta
 	if old, ok := s.metrics[m.ID]; ok && old.Delta != nil {
 		newVal += *old.Delta
