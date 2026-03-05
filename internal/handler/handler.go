@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log"
 	models "metrics/internal/model"
+	"metrics/internal/service"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -71,12 +72,12 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	_, err := h.svc.ParseAndSave(mType, mName, mValue)
 	if err != nil {
 		switch {
-		case errors.Is(err, models.ErrInvalidMetricType) || errors.Is(err, models.ErrInvalidValue):
+		case errors.Is(err, service.ErrTypeMetric) || errors.Is(err, service.ErrInvalidValue):
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		case errors.Is(err, models.ErrMetricNotFound):
+		case errors.Is(err, service.ErrMetricNotFound):
 			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		default:
-			log.Printf("Internal Server Error %v", err)
+			log.Printf("failed to parse and save a metric %v", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 		return
@@ -98,12 +99,12 @@ func (h *Handler) GetMetrica(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		switch {
-		case errors.Is(err, models.ErrInvalidMetricType) || errors.Is(err, models.ErrInvalidValue):
+		case errors.Is(err, service.ErrTypeMetric) || errors.Is(err, service.ErrInvalidValue):
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		case errors.Is(err, models.ErrMetricNotFound):
+		case errors.Is(err, service.ErrMetricNotFound):
 			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		default:
-			log.Printf("Internal Server Error %v", err)
+			log.Printf("failed to get a metrica %v", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 		return

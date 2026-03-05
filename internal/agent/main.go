@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"math/rand/v2"
@@ -11,6 +12,10 @@ import (
 	"reflect"
 	"runtime"
 	"time"
+)
+
+var (
+	ErrSendMetrica = errors.New("failed to send metrica")
 )
 
 type GaugeMertics struct {
@@ -183,28 +188,30 @@ func (m *MetricaAgent) Send() {
 // sendGauge Вспомогательный метод для отправки Gauge
 func (m *MetricaAgent) sendGauge(name string, value float64) {
 	url := fmt.Sprintf("/update/gauge/%s/%s", name, utils.Float64ToString(value))
-	m.sender(m.serverAddr, url)
+	e := m.sender(m.serverAddr, url)
+	if e != nil {
+		log.Printf("failed to send gauge %s value %f: %v", name, value, e)
+	}
 }
 
 // sendCounter Вспомогательный метод для отправки Counter
 func (m *MetricaAgent) sendCounter(name string, value int64) {
 	url := fmt.Sprintf("/update/counter/%s/%s", name, utils.Int64ToString(value))
-	m.sender(m.serverAddr, url)
+	e := m.sender(m.serverAddr, url)
+	if e != nil {
+		log.Printf("failed to send counter %s value %d: %v", name, value, e)
+	}
 }
 
-func (m *MetricaAgent) sender(addr, url string) bool {
-	r, e := http.Post(fmt.Sprintf("%s%s", addr, url), models.ContentTypeText, nil)
-	if e != nil {
-		log.Printf("Ошибка при отправке метрик %s , ошибка %v\n", url, e)
-		return false
+func (m *MetricaAgent) sender(addr, url string) error {
+	resp, err := http.Post(fmt.Sprintf("%s%s", addr, url), models.ContentTypeText, nil)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrSendMetrica, err)
 	}
-	defer r.Body.Close()
+	defer resp.Body.Close()
 
-	if r.StatusCode != http.StatusOK {
-		log.Printf("Ошибка при отправке метрик %s , код ответа севрера %d\n", url, r.StatusCode)
-		return false
-	} else {
-		fmt.Printf("Метрика отправлена %s\n", url)
-		return true
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w: server returned status %d", ErrSendMetrica, resp.StatusCode)
 	}
+	return nil
 }

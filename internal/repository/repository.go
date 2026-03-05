@@ -1,7 +1,13 @@
 package storage
 
 import (
+	"errors"
 	"metrics/internal/model"
+)
+
+var (
+	ErrInvalidValue   = errors.New("invalid metric value")
+	ErrMetricNotFound = errors.New("metric not found")
 )
 
 type MemStorage struct {
@@ -21,7 +27,7 @@ func (s *MemStorage) UpdateGauges(m models.Metrics) (models.Metrics, error) {
 
 func (s *MemStorage) UpdateCounter(m models.Metrics) (models.Metrics, error) {
 	if m.Delta == nil {
-		return m, models.ErrInvalidValue
+		return m, ErrInvalidValue
 	}
 
 	newVal := *m.Delta
@@ -36,7 +42,7 @@ func (s *MemStorage) UpdateCounter(m models.Metrics) (models.Metrics, error) {
 func (s *MemStorage) GetMetrica(m models.Metrics) (*models.Metrics, error) {
 	mm, ok := s.metrics[m.ID]
 	if !ok {
-		return nil, models.ErrMetricNotFound
+		return nil, ErrMetricNotFound
 	}
 	return &mm, nil
 }
