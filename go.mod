@@ -3,6 +3,7 @@ module metrics
 go 1.25.1
 
 require (
+	github.com/caarlos0/env/v6 v6.10.1
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/stretchr/testify v1.11.1
 )
