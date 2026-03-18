@@ -5,10 +5,12 @@
 *.so
 *.dylib
 *.json
+*.yaml
 autotest
 
 # Test binary, built with `go test -c`
 *.test
+Makefile
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out

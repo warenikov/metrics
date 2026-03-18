@@ -1,8 +1,9 @@
 package server
 
 import (
-	"log"
 	"metrics/internal/config"
+	"metrics/internal/logger"
+	"metrics/internal/middleware"
 	"metrics/internal/service"
 	"net/http"
 
@@ -21,6 +22,9 @@ type MetricsHandler interface {
 
 func Start(cfg *config.Config, h MetricsHandler) error {
 	r := chi.NewRouter()
+
+	r.Use(middleware.LoggerMiddleware)
+
 	r.Post("/update/{type}/{name}/{value}", h.Update)
 
 	r.Get("/value/{type}/{name}", h.GetMetrica)
@@ -28,7 +32,7 @@ func Start(cfg *config.Config, h MetricsHandler) error {
 
 	addr := cfg.ServerAddr
 
-	log.Printf("Try start server on http://%s", addr)
+	logger.Log.Info("Starting server on http://" + addr)
 
 	if err := http.ListenAndServe(addr, r); err != nil {
 		return err

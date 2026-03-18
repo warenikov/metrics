@@ -11,6 +11,7 @@ type Config struct {
 	ServerAddr     string `env:"ADDRESS"`
 	ReportInterval int    `env:"REPORT_INTERVAL"`
 	PollInterval   int    `env:"POLL_INTERVAL"`
+	LogLevel       string `env:"LOG_LEVEL"`
 }
 
 func LoadConfig() *Config {
@@ -19,6 +20,7 @@ func LoadConfig() *Config {
 		ServerAddr:     "localhost:8080",
 		ReportInterval: 10,
 		PollInterval:   2,
+		LogLevel:       "info",
 	}
 
 	//нужно получить параметры для запуска приложения в таком приоритере:
@@ -35,6 +37,7 @@ func loadFromCLI(cfg *Config) {
 	flag.StringVar(&cfg.ServerAddr, "a", cfg.ServerAddr, "HTTP address")
 	flag.IntVar(&cfg.ReportInterval, "r", cfg.ReportInterval, "Reporting interval in seconds")
 	flag.IntVar(&cfg.PollInterval, "p", cfg.PollInterval, "Polling interval in seconds")
+	flag.StringVar(&cfg.ServerAddr, "l", cfg.LogLevel, "Log level")
 
 	flag.Parse()
 }
