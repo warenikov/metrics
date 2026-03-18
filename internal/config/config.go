@@ -17,7 +17,7 @@ type Config struct {
 func LoadConfig() *Config {
 	//устанавливаем значение по умолчанию
 	cfg := &Config{
-		ServerAddr:     "localhost:8080",
+		ServerAddr:     ":8080",
 		ReportInterval: 10,
 		PollInterval:   2,
 		LogLevel:       "info",
