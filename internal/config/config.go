@@ -37,7 +37,7 @@ func loadFromCLI(cfg *Config) {
 	flag.StringVar(&cfg.ServerAddr, "a", cfg.ServerAddr, "HTTP address")
 	flag.IntVar(&cfg.ReportInterval, "r", cfg.ReportInterval, "Reporting interval in seconds")
 	flag.IntVar(&cfg.PollInterval, "p", cfg.PollInterval, "Polling interval in seconds")
-	flag.StringVar(&cfg.ServerAddr, "l", cfg.LogLevel, "Log level")
+	flag.StringVar(&cfg.LogLevel, "l", cfg.LogLevel, "Log level")
 
 	flag.Parse()
 }
