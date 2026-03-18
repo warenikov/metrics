@@ -38,7 +38,6 @@ func loadFromCLI(cfg *Config) {
 	flag.IntVar(&cfg.ReportInterval, "r", cfg.ReportInterval, "Reporting interval in seconds")
 	flag.IntVar(&cfg.PollInterval, "p", cfg.PollInterval, "Polling interval in seconds")
 	flag.StringVar(&cfg.LogLevel, "l", cfg.LogLevel, "Log level")
-
 	flag.Parse()
 }
 
