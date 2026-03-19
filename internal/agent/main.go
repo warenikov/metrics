@@ -1,13 +1,14 @@
 package agent
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math/rand/v2"
 	"metrics/internal/config"
+	"metrics/internal/logger"
 	models "metrics/internal/model"
-	"metrics/internal/utils"
 	"net/http"
 	"reflect"
 	"runtime"
@@ -90,7 +91,7 @@ func (m *MetricaAgent) Run() {
 
 func (m *MetricaAgent) Poll() error {
 	runtime.ReadMemStats(m.ms)
-
+	logger.Log.Info("Poll metrics")
 	m.collectMerticsReflection()
 
 	return nil
@@ -183,35 +184,34 @@ func (m *MetricaAgent) Send() {
 
 	// Отправляем Counter метрики
 	m.sendCounter("PollCount", m.counters.PollCount)
+
+	logger.Log.Info("Send metrics")
 }
 
 // sendGauge Вспомогательный метод для отправки Gauge
 func (m *MetricaAgent) sendGauge(name string, value float64) {
-	url := fmt.Sprintf("/update/gauge/%s/%s", name, utils.Float64ToString(value))
-	e := m.sender(m.serverAddr, url)
+	data, err := json.Marshal(&models.Metrics{ID: name, Value: &value, MType: models.Gauge})
+	if err != nil {
+		logger.Log.Error(fmt.Sprintf("failed to marshal metrica data: %v", err))
+	}
+
+	_, e := http.Post(m.serverAddr+"/update/", models.ContentTypeJson, bytes.NewBuffer(data))
+
+	//logger.Log.Info(fmt.Sprintf("Send metrics %s", m.serverAddr+"/update/"))
 	if e != nil {
-		log.Printf("failed to send gauge %s value %f: %v", name, value, e)
+		logger.Log.Error(fmt.Sprintf("failed to send metrica %s: %v", name, e))
 	}
 }
 
 // sendCounter Вспомогательный метод для отправки Counter
 func (m *MetricaAgent) sendCounter(name string, value int64) {
-	url := fmt.Sprintf("/update/counter/%s/%s", name, utils.Int64ToString(value))
-	e := m.sender(m.serverAddr, url)
-	if e != nil {
-		log.Printf("failed to send counter %s value %d: %v", name, value, e)
-	}
-}
-
-func (m *MetricaAgent) sender(addr, url string) error {
-	resp, err := http.Post(fmt.Sprintf("%s%s", addr, url), models.ContentTypeText, nil)
+	data, err := json.Marshal(&models.Metrics{ID: name, Delta: &value, MType: models.Counter})
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrSendMetrica, err)
+		logger.Log.Error(fmt.Sprintf("failed to marshal metrica data: %v", err))
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: server returned status %d", ErrSendMetrica, resp.StatusCode)
+	_, e := http.Post(m.serverAddr+"/update/", models.ContentTypeJson, bytes.NewBuffer(data))
+	if e != nil {
+		logger.Log.Error(fmt.Sprintf("failed to send metrica %s: %v", name, e))
 	}
-	return nil
 }
