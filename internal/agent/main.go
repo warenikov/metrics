@@ -37,7 +37,7 @@ type GaugeMertics struct {
 	MCacheSys     float64 `json:"mcache_sys"`
 	MSpanInuse    float64 `json:"mspan_inuse"`
 	MSpanSys      float64 `json:"mspan_sys"`
-	Malloc        float64 `json:"malloc"`
+	Mallocs       float64 `json:"mallocs"`
 	NextGC        float64 `json:"next_gc"`
 	NumForcedGC   float64 `json:"num_forced_gc"`
 	NumGC         float64 `json:"num_gc"`
@@ -136,7 +136,7 @@ func (m *MetricaAgent) collectMerticsManual() {
 	m.gauges.MCacheInuse = float64(m.ms.MCacheInuse)
 	m.gauges.MCacheSys = float64(m.ms.MCacheSys)
 	m.gauges.MSpanInuse = float64(m.ms.MSpanInuse)
-	m.gauges.Malloc = float64(m.ms.Mallocs)
+	m.gauges.Mallocs = float64(m.ms.Mallocs)
 	m.gauges.NextGC = float64(m.ms.NextGC)
 	m.gauges.NumForcedGC = float64(m.ms.NumForcedGC)
 	m.gauges.NumGC = float64(m.ms.NumGC)
@@ -170,7 +170,7 @@ func (m *MetricaAgent) Send() {
 	m.sendGauge("MCacheSys", g.MCacheSys)
 	m.sendGauge("MSpanInuse", g.MSpanInuse)
 	m.sendGauge("MSpanSys", g.MSpanSys)
-	m.sendGauge("Malloc", g.Malloc)
+	m.sendGauge("Mallocs", g.Mallocs)
 	m.sendGauge("NextGC", g.NextGC)
 	m.sendGauge("NumForcedGC", g.NumForcedGC)
 	m.sendGauge("NumGC", g.NumGC)

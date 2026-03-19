@@ -106,7 +106,6 @@ func (h *Handler) UpdateJson(w http.ResponseWriter, r *http.Request) {
 		"UPDATE: ID=%s, Type=%s, Delta=%s, Value=%s",
 		metrica.ID, metrica.MType, deltaVal, valueVal,
 	))
-	// ------------------------------------
 
 	valStr := metrica.ValueString()
 	_, err = h.svc.ParseAndSave(metrica.MType, metrica.ID, valStr)
@@ -115,8 +114,22 @@ func (h *Handler) UpdateJson(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	m, e := h.svc.GetMetrica(metrica.MType, metrica.ID)
+	if e != nil {
+		h.errorProcess(e, w)
+		return
+	}
+
+	resp, e := json.Marshal(m)
+
+	if e != nil {
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	w.Write(resp)
 
 }
 
