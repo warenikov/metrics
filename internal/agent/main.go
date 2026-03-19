@@ -197,9 +197,9 @@ func (m *MetricaAgent) sendGauge(name string, value float64) {
 
 	r, e := http.Post(m.serverAddr+"/update/", models.ContentTypeJSON, bytes.NewBuffer(data))
 
-	//logger.Log.Info(fmt.Sprintf("Send metrics %s", m.serverAddr+"/update/"))
 	if e != nil {
 		logger.Log.Error(fmt.Sprintf("failed to send metrica %s: %v", name, e))
+		return
 	}
 	defer r.Body.Close()
 }
@@ -214,6 +214,7 @@ func (m *MetricaAgent) sendCounter(name string, value int64) {
 	r, e := http.Post(m.serverAddr+"/update/", models.ContentTypeJSON, bytes.NewBuffer(data))
 	if e != nil {
 		logger.Log.Error(fmt.Sprintf("failed to send metrica %s: %v", name, e))
+		return
 	}
 	defer r.Body.Close()
 }

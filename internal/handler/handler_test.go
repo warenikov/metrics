@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"metrics/internal/model"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandler_Update(t *testing.T) {
@@ -157,6 +160,189 @@ func TestHandler_GetMetrica(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, w.Code)
 			if tt.expectedStatus == http.StatusOK {
 				assert.Equal(t, tt.expectedBody, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandler_UpdateJSON(t *testing.T) {
+	repo := storage.NewMemStorage()
+	svc := service.NewMetricsService(repo)
+	h := NewHandler(svc)
+
+	r := chi.NewRouter()
+	r.Post("/update/", h.UpdateJSON)
+
+	tests := []struct {
+		name           string
+		body           string
+		expectedStatus int
+		expectedType   string
+		expectedID     string
+	}{
+		{
+			name:           "Валидный gauge",
+			body:           `{"id":"Alloc","type":"gauge","value":100.5}`,
+			expectedStatus: http.StatusOK,
+			expectedType:   models.Gauge,
+			expectedID:     "Alloc",
+		},
+		{
+			name:           "Валидный counter",
+			body:           `{"id":"PollCount","type":"counter","delta":5}`,
+			expectedStatus: http.StatusOK,
+			expectedType:   models.Counter,
+			expectedID:     "PollCount",
+		},
+		{
+			name:           "Битый JSON",
+			body:           `{bad json}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Неверный тип метрики",
+			body:           `{"id":"x","type":"unknown","value":1.0}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/update/", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			r.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+
+			if tt.expectedStatus == http.StatusOK {
+				assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+				var got models.Metrics
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+				assert.Equal(t, tt.expectedID, got.ID)
+				assert.Equal(t, tt.expectedType, got.MType)
+			}
+		})
+	}
+}
+
+func TestHandler_GetMetricaJSON(t *testing.T) {
+	repo := storage.NewMemStorage()
+	svc := service.NewMetricsService(repo)
+	h := NewHandler(svc)
+
+	// Предзаполняем хранилище
+	gaugeVal := 100.5
+	var counterVal int64 = 5
+	repo.UpdateGauges(models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &gaugeVal})
+	repo.UpdateCounter(models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &counterVal})
+
+	r := chi.NewRouter()
+	r.Post("/value/", h.GetMetricaJSON)
+
+	tests := []struct {
+		name           string
+		body           string
+		expectedStatus int
+		checkValue     func(t *testing.T, m models.Metrics)
+	}{
+		{
+			name:           "Gauge найден",
+			body:           `{"id":"Alloc","type":"gauge"}`,
+			expectedStatus: http.StatusOK,
+			checkValue: func(t *testing.T, m models.Metrics) {
+				require.NotNil(t, m.Value)
+				assert.Equal(t, 100.5, *m.Value)
+			},
+		},
+		{
+			name:           "Counter найден",
+			body:           `{"id":"PollCount","type":"counter"}`,
+			expectedStatus: http.StatusOK,
+			checkValue: func(t *testing.T, m models.Metrics) {
+				require.NotNil(t, m.Delta)
+				assert.Equal(t, int64(5), *m.Delta)
+			},
+		},
+		{
+			name:           "Не существует",
+			body:           `{"id":"Unknown","type":"gauge"}`,
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "Неверный тип (gauge запрошен как counter)",
+			body:           `{"id":"Alloc","type":"counter"}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Битый JSON",
+			body:           `{bad}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/value/", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			r.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+
+			if tt.expectedStatus == http.StatusOK {
+				assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+				var got models.Metrics
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+				tt.checkValue(t, got)
+			}
+		})
+	}
+}
+
+func TestHandler_GetMetricsList(t *testing.T) {
+	tests := []struct {
+		name         string
+		setup        func(repo *storage.MemStorage)
+		expectInBody []string
+	}{
+		{
+			name:  "Пустое хранилище",
+			setup: func(repo *storage.MemStorage) {},
+		},
+		{
+			name: "Есть метрики",
+			setup: func(repo *storage.MemStorage) {
+				v := 42.0
+				var d int64 = 7
+				repo.UpdateGauges(models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &v})
+				repo.UpdateCounter(models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &d})
+			},
+			expectInBody: []string{"Alloc", "PollCount"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := storage.NewMemStorage()
+			tt.setup(repo)
+			svc := service.NewMetricsService(repo)
+			h := NewHandler(svc)
+
+			r := chi.NewRouter()
+			r.Get("/", h.GetMetricsList)
+
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			w := httptest.NewRecorder()
+
+			r.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
+			for _, s := range tt.expectInBody {
+				assert.Contains(t, w.Body.String(), s)
 			}
 		})
 	}
