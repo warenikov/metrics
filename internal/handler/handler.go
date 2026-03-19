@@ -173,7 +173,7 @@ func (h *Handler) GetMetricaJSON(w http.ResponseWriter, r *http.Request) {
 
 	logger.Log.Info(fmt.Sprintf("GetMetricaJson: Sending JSON: %s", string(resp)))
 
-	w.Header().Set("Content-Type", models.ContentTypeJson)
+	w.Header().Set("Content-Type", models.ContentTypeJSON)
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp)
 }
