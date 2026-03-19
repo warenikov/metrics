@@ -81,7 +81,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) UpdateJson(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) UpdateJSON(w http.ResponseWriter, r *http.Request) {
 	var metrica models.Metrics
 
 	err := json.NewDecoder(r.Body).Decode(&metrica)
@@ -133,7 +133,7 @@ func (h *Handler) UpdateJson(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (h *Handler) GetMetricaJson(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetMetricaJSON(w http.ResponseWriter, r *http.Request) {
 	var metrica models.Metrics
 
 	err := json.NewDecoder(r.Body).Decode(&metrica)
