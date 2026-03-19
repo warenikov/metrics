@@ -178,6 +178,7 @@ func (h *Handler) GetMetrica(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		h.errorProcess(err, w)
+		return
 	}
 
 	result := mm.ValueString()
