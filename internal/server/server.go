@@ -26,6 +26,7 @@ func Start(cfg *config.Config, h MetricsHandler) error {
 	r := chi.NewRouter()
 
 	r.Use(middleware.LoggerMiddleware)
+	r.Use(middleware.GzipMiddleware)
 
 	r.Post("/update/{type}/{name}/{value}", h.Update)
 	r.Post("/update/", h.UpdateJSON)

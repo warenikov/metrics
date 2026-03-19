@@ -102,7 +102,7 @@ func (h *Handler) UpdateJSON(w http.ResponseWriter, r *http.Request) {
 		valueVal = fmt.Sprintf("%f", *metrica.Value)
 	}
 
-	logger.Log.Info(fmt.Sprintf(
+	logger.Log.Debug(fmt.Sprintf(
 		"UPDATE: ID=%s, Type=%s, Delta=%s, Value=%s",
 		metrica.ID, metrica.MType, deltaVal, valueVal,
 	))
@@ -144,7 +144,7 @@ func (h *Handler) GetMetricaJSON(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	logger.Log.Info(fmt.Sprintf("GetMetricaJson: Request for ID=%s, Type=%s", metrica.ID, metrica.MType))
+	logger.Log.Debug(fmt.Sprintf("GetMetricaJson: Request for ID=%s, Type=%s", metrica.ID, metrica.MType))
 
 	foundMetrica, err := h.svc.GetMetrica(metrica.MType, metrica.ID)
 	if err != nil {
@@ -161,7 +161,7 @@ func (h *Handler) GetMetricaJSON(w http.ResponseWriter, r *http.Request) {
 		vVal = fmt.Sprintf("%f", *foundMetrica.Value)
 	}
 
-	logger.Log.Info(fmt.Sprintf("GetMetricaJson: Found in storage: ID=%s, Delta=%s, Value=%s",
+	logger.Log.Debug(fmt.Sprintf("GetMetricaJson: Found in storage: ID=%s, Delta=%s, Value=%s",
 		foundMetrica.ID, dVal, vVal))
 
 	resp, err := json.Marshal(foundMetrica)
@@ -171,7 +171,7 @@ func (h *Handler) GetMetricaJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.Log.Info(fmt.Sprintf("GetMetricaJson: Sending JSON: %s", string(resp)))
+	logger.Log.Debug(fmt.Sprintf("GetMetricaJson: Sending JSON: %s", string(resp)))
 
 	w.Header().Set("Content-Type", models.ContentTypeJSON)
 	w.WriteHeader(http.StatusOK)

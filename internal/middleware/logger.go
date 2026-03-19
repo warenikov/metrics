@@ -8,17 +8,15 @@ import (
 	"go.uber.org/zap"
 )
 
-type (
-	responseData struct {
-		status int
-		size   int
-	}
+type responseData struct {
+	status int
+	size   int
+}
 
-	loggingResponseWriter struct {
-		http.ResponseWriter
-		responseData *responseData
-	}
-)
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	responseData *responseData
+}
 
 func (r *loggingResponseWriter) Write(b []byte) (int, error) {
 	size, err := r.ResponseWriter.Write(b)
@@ -42,7 +40,9 @@ func LoggerMiddleware(next http.Handler) http.Handler {
 			ResponseWriter: w,
 			responseData:   rd,
 		}
+
 		next.ServeHTTP(&lw, r)
+
 		duration := time.Since(start)
 
 		logger.Log.Debug("Request completed",

@@ -2,9 +2,11 @@ package agent
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"metrics/internal/config"
 	"metrics/internal/logger"
@@ -91,7 +93,7 @@ func (m *MetricaAgent) Run() {
 
 func (m *MetricaAgent) Poll() error {
 	runtime.ReadMemStats(m.ms)
-	logger.Log.Info("Poll metrics")
+	logger.Log.Debug("Poll metrics")
 	m.collectMerticsReflection()
 
 	return nil
@@ -185,36 +187,82 @@ func (m *MetricaAgent) Send() {
 	// Отправляем Counter метрики
 	m.sendCounter("PollCount", m.counters.PollCount)
 
-	logger.Log.Info("Send metrics")
+	logger.Log.Debug("Send metrics")
 }
 
 // sendGauge Вспомогательный метод для отправки Gauge
 func (m *MetricaAgent) sendGauge(name string, value float64) {
 	data, err := json.Marshal(&models.Metrics{ID: name, Value: &value, MType: models.Gauge})
 	if err != nil {
-		logger.Log.Error(fmt.Sprintf("failed to marshal metrica data: %v", err))
-	}
-
-	r, e := http.Post(m.serverAddr+"/update/", models.ContentTypeJSON, bytes.NewBuffer(data))
-
-	if e != nil {
-		logger.Log.Error(fmt.Sprintf("failed to send metrica %s: %v", name, e))
+		logger.Log.Error(fmt.Sprintf("failed to marshal gauge: %v", err))
 		return
 	}
-	defer r.Body.Close()
+	m.postRequest(data, name)
 }
 
 // sendCounter Вспомогательный метод для отправки Counter
 func (m *MetricaAgent) sendCounter(name string, value int64) {
 	data, err := json.Marshal(&models.Metrics{ID: name, Delta: &value, MType: models.Counter})
 	if err != nil {
-		logger.Log.Error(fmt.Sprintf("failed to marshal metrica data: %v", err))
-	}
-
-	r, e := http.Post(m.serverAddr+"/update/", models.ContentTypeJSON, bytes.NewBuffer(data))
-	if e != nil {
-		logger.Log.Error(fmt.Sprintf("failed to send metrica %s: %v", name, e))
+		logger.Log.Error(fmt.Sprintf("failed to marshal counter: %v", err))
 		return
 	}
-	defer r.Body.Close()
+	m.postRequest(data, name)
+}
+
+// compress сжимает данные методом Gzip
+func (m *MetricaAgent) compress(data []byte) (*bytes.Buffer, error) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(data); err != nil {
+		return nil, err
+	}
+	if err := gz.Close(); err != nil {
+		return nil, err
+	}
+	return &buf, nil
+}
+
+func (m *MetricaAgent) postRequest(data []byte, name string) {
+	compressedData, err := m.compress(data)
+	if err != nil {
+		logger.Log.Error(fmt.Sprintf("failed to compress data: %v", err))
+		return
+	}
+
+	req, err := http.NewRequest("POST", m.serverAddr+"/update/", compressedData)
+	if err != nil {
+		logger.Log.Error(fmt.Sprintf("failed to create request: %v", err))
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Log.Error(fmt.Sprintf("failed to send metrica %s: %v", name, err))
+		return
+	}
+	defer resp.Body.Close()
+
+	var reader = resp.Body
+
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gz, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			logger.Log.Error(fmt.Sprintf("failed to create gzip reader for response: %v", err))
+			return
+		}
+		defer gz.Close()
+		reader = gz
+	}
+
+	_, err = io.ReadAll(reader)
+	if err != nil {
+		logger.Log.Error(fmt.Sprintf("failed to read response body: %v", err))
+		return
+	}
 }
