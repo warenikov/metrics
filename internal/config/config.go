@@ -8,19 +8,25 @@ import (
 )
 
 type Config struct {
-	ServerAddr     string `env:"ADDRESS"`
-	ReportInterval int    `env:"REPORT_INTERVAL"`
-	PollInterval   int    `env:"POLL_INTERVAL"`
-	LogLevel       string `env:"LOG_LEVEL"`
+	ServerAddr      string `env:"ADDRESS"`
+	ReportInterval  int    `env:"REPORT_INTERVAL"`
+	PollInterval    int    `env:"POLL_INTERVAL"`
+	LogLevel        string `env:"LOG_LEVEL"`
+	StoreInterval   int    `env:"STORE_INTERVAL"`
+	FileStoragePath string `env:"FILE_STORAGE_PATH"`
+	Restore         bool   `env:"RESTORE"`
 }
 
 func LoadConfig() *Config {
 	//устанавливаем значение по умолчанию
 	cfg := &Config{
-		ServerAddr:     "localhost:8080",
-		ReportInterval: 10,
-		PollInterval:   2,
-		LogLevel:       "info",
+		ServerAddr:      "localhost:8080",
+		ReportInterval:  10,
+		PollInterval:    2,
+		LogLevel:        "info",
+		StoreInterval:   300,
+		FileStoragePath: "storage.txt",
+		Restore:         true,
 	}
 
 	//нужно получить параметры для запуска приложения в таком приоритере:
@@ -35,8 +41,11 @@ func LoadConfig() *Config {
 
 func loadFromCLI(cfg *Config) {
 	flag.StringVar(&cfg.ServerAddr, "a", cfg.ServerAddr, "HTTP address")
-	flag.IntVar(&cfg.ReportInterval, "r", cfg.ReportInterval, "Reporting interval in seconds")
+	flag.IntVar(&cfg.ReportInterval, "rep", cfg.ReportInterval, "Reporting interval in seconds")
 	flag.IntVar(&cfg.PollInterval, "p", cfg.PollInterval, "Polling interval in seconds")
+	flag.IntVar(&cfg.StoreInterval, "i", cfg.StoreInterval, "Store interval in seconds")
+	flag.StringVar(&cfg.FileStoragePath, "f", cfg.FileStoragePath, "File to storage")
+	flag.BoolVar(&cfg.Restore, "r", cfg.Restore, "Restore metrics from file")
 	flag.StringVar(&cfg.LogLevel, "l", cfg.LogLevel, "Log level")
 	flag.Parse()
 }

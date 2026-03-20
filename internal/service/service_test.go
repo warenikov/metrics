@@ -3,7 +3,8 @@ package service
 import (
 	"errors"
 	"metrics/internal/model"
-	"metrics/internal/repository" // Импортируй свой реальный сторедж
+	"metrics/internal/repository"
+	"metrics/internal/repository/storage"
 	"testing"
 )
 
@@ -110,7 +111,7 @@ func TestMetricsService_ParseAndSave_Integration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := storage.NewMemStorage()
+			repo := storage.storage.NewMemStorage()
 			srv := NewMetricsService(repo)
 
 			if tt.setupValue != nil {
@@ -147,7 +148,7 @@ func TestMetricsService_ParseAndSave_Integration(t *testing.T) {
 }
 
 func TestMetricsService_GetMetrica_Integration(t *testing.T) {
-	repo := storage.NewMemStorage()
+	repo := repository.NewMemStorage()
 	srv := NewMetricsService(repo)
 
 	// Предзаполняем данными

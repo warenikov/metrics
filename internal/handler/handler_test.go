@@ -2,13 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"metrics/internal/repository"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"metrics/internal/model"
-	"metrics/internal/repository"
 	"metrics/internal/service"
 
 	"github.com/go-chi/chi/v5"
@@ -17,7 +17,7 @@ import (
 )
 
 func TestHandler_Update(t *testing.T) {
-	repo := storage.NewMemStorage()
+	repo := repository.NewMemStorage()
 	svc := service.NewMetricsService(repo)
 	h := NewHandler(svc)
 
@@ -107,7 +107,7 @@ func TestHandler_Update(t *testing.T) {
 }
 
 func TestHandler_GetMetrica(t *testing.T) {
-	repo := storage.NewMemStorage()
+	repo := repository.NewMemStorage()
 	svc := service.NewMetricsService(repo)
 	h := NewHandler(svc)
 
@@ -166,7 +166,7 @@ func TestHandler_GetMetrica(t *testing.T) {
 }
 
 func TestHandler_UpdateJSON(t *testing.T) {
-	repo := storage.NewMemStorage()
+	repo := repository.NewMemStorage()
 	svc := service.NewMetricsService(repo)
 	h := NewHandler(svc)
 
@@ -228,7 +228,7 @@ func TestHandler_UpdateJSON(t *testing.T) {
 }
 
 func TestHandler_GetMetricaJSON(t *testing.T) {
-	repo := storage.NewMemStorage()
+	repo := repository.NewMemStorage()
 	svc := service.NewMetricsService(repo)
 	h := NewHandler(svc)
 
@@ -305,16 +305,16 @@ func TestHandler_GetMetricaJSON(t *testing.T) {
 func TestHandler_GetMetricsList(t *testing.T) {
 	tests := []struct {
 		name         string
-		setup        func(repo *storage.MemStorage)
+		setup        func(repo *repository.MemStorage)
 		expectInBody []string
 	}{
 		{
 			name:  "Пустое хранилище",
-			setup: func(repo *storage.MemStorage) {},
+			setup: func(repo *repository.MemStorage) {},
 		},
 		{
 			name: "Есть метрики",
-			setup: func(repo *storage.MemStorage) {
+			setup: func(repo *repository.MemStorage) {
 				v := 42.0
 				var d int64 = 7
 				repo.UpdateGauges(models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &v})
@@ -326,7 +326,7 @@ func TestHandler_GetMetricsList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := storage.NewMemStorage()
+			repo := repository.NewMemStorage()
 			tt.setup(repo)
 			svc := service.NewMetricsService(repo)
 			h := NewHandler(svc)

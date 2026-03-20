@@ -37,7 +37,7 @@ func Start(cfg *config.Config, h MetricsHandler) error {
 
 	addr := cfg.ServerAddr
 
-	logger.Log.Info("Starting server on http://" + addr)
+	logger.Log.Debug("Starting server on http://" + addr)
 
 	if err := http.ListenAndServe(addr, r); err != nil {
 		return err
