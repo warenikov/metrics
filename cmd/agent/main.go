@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	cfg := config.LoadConfig()
+	cfg := config.LoadAgentConfig()
 	agent := agent.NewMetricaAgent(cfg)
 	//инициализируем логгер
 	if err := logger.Initialize(cfg.LogLevel); err != nil {

@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	cfg := config.LoadConfig()
+	cfg := config.LoadServerConfig()
 
 	if err := logger.Initialize(cfg.LogLevel); err != nil {
 		logger.Log.Fatal("Failed to initialize logger", zap.Error(err))

@@ -17,37 +17,42 @@ type Config struct {
 	Restore         bool   `env:"RESTORE"`
 }
 
-func LoadConfig() *Config {
-	//устанавливаем значение по умолчанию
+func LoadServerConfig() *Config {
 	cfg := &Config{
 		ServerAddr:      "localhost:8080",
-		ReportInterval:  10,
-		PollInterval:    2,
 		LogLevel:        "info",
 		StoreInterval:   300,
 		FileStoragePath: "storage.txt",
 		Restore:         true,
 	}
 
-	//нужно получить параметры для запуска приложения в таком приоритере:
-	//1. Если указана переменная окружения, то используется она.
 	loadFromEnv(cfg)
-	//2. Если нет переменной окружения, но есть аргумент командной строки (флаг), то используется он.
-	loadFromCLI(cfg)
-	//3. Если нет ни переменной окружения, ни флага, то используется значение по умолчанию, которое установлено изначально.
+	flag.StringVar(&cfg.ServerAddr, "a", cfg.ServerAddr, "HTTP address")
+	flag.IntVar(&cfg.StoreInterval, "i", cfg.StoreInterval, "Store interval in seconds")
+	flag.StringVar(&cfg.FileStoragePath, "f", cfg.FileStoragePath, "File storage path")
+	flag.BoolVar(&cfg.Restore, "r", cfg.Restore, "Restore metrics from file")
+	flag.StringVar(&cfg.LogLevel, "l", cfg.LogLevel, "Log level")
+	flag.Parse()
 
 	return cfg
 }
 
-func loadFromCLI(cfg *Config) {
+func LoadAgentConfig() *Config {
+	cfg := &Config{
+		ServerAddr:     "localhost:8080",
+		ReportInterval: 10,
+		PollInterval:   2,
+		LogLevel:       "info",
+	}
+
+	loadFromEnv(cfg)
 	flag.StringVar(&cfg.ServerAddr, "a", cfg.ServerAddr, "HTTP address")
-	flag.IntVar(&cfg.ReportInterval, "rep", cfg.ReportInterval, "Reporting interval in seconds")
+	flag.IntVar(&cfg.ReportInterval, "r", cfg.ReportInterval, "Reporting interval in seconds")
 	flag.IntVar(&cfg.PollInterval, "p", cfg.PollInterval, "Polling interval in seconds")
-	flag.IntVar(&cfg.StoreInterval, "i", cfg.StoreInterval, "Store interval in seconds")
-	flag.StringVar(&cfg.FileStoragePath, "f", cfg.FileStoragePath, "File to storage")
-	flag.BoolVar(&cfg.Restore, "r", cfg.Restore, "Restore metrics from file")
 	flag.StringVar(&cfg.LogLevel, "l", cfg.LogLevel, "Log level")
 	flag.Parse()
+
+	return cfg
 }
 
 func loadFromEnv(cfg *Config) {
