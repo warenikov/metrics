@@ -67,9 +67,15 @@ func (r *FileBackedRepo) Load() error {
 	for _, m := range metrics {
 		switch m.MType {
 		case models.Gauge:
-			r.mem.UpdateGauges(m)
+			_, e := r.mem.UpdateGauges(m)
+			if e != nil {
+				return e
+			}
 		case models.Counter:
-			r.mem.UpdateCounter(m)
+			_, e := r.mem.UpdateCounter(m)
+			if e != nil {
+				return e
+			}
 		}
 	}
 	return nil
