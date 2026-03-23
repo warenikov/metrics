@@ -79,6 +79,10 @@ func (r *FileBackedRepo) load() error {
 		return err
 	}
 
+	if len(data) == 0 {
+		return nil
+	}
+
 	var metrics []models.Metrics
 	if err := json.Unmarshal(data, &metrics); err != nil {
 		return err

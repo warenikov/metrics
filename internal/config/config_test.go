@@ -62,7 +62,9 @@ func TestLoadServerConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for k, v := range tt.envVars {
+				k := k
 				os.Setenv(k, v)
+				t.Cleanup(func() { os.Unsetenv(k) })
 			}
 
 			flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
@@ -127,7 +129,9 @@ func TestLoadAgentConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for k, v := range tt.envVars {
+				k := k
 				os.Setenv(k, v)
+				t.Cleanup(func() { os.Unsetenv(k) })
 			}
 
 			flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
