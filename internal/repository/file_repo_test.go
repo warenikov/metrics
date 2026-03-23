@@ -87,7 +87,7 @@ func TestFileBackedRepo_Load(t *testing.T) {
 			mem := NewMemStorage()
 			repo := NewFileBackedRepo(mem, fp, 300)
 
-			err := repo.Load()
+			err := repo.load()
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Load() error = %v, wantErr = %v", err, tt.wantErr)
 			}

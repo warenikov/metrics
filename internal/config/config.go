@@ -2,9 +2,10 @@ package config
 
 import (
 	"flag"
-	"log"
+	"metrics/internal/logger"
 
 	"github.com/caarlos0/env/v6"
+	"go.uber.org/zap"
 )
 
 type Config struct {
@@ -58,6 +59,6 @@ func LoadAgentConfig() *Config {
 func loadFromEnv(cfg *Config) {
 	err := env.Parse(cfg)
 	if err != nil {
-		log.Printf("Can't parse config from os: %s ", err)
+		logger.Log.Error("Can't parse config from os", zap.Error(err))
 	}
 }

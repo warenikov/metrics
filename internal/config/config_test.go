@@ -61,7 +61,6 @@ func TestLoadServerConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
 			for k, v := range tt.envVars {
 				os.Setenv(k, v)
 			}
@@ -127,7 +126,6 @@ func TestLoadAgentConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
 			for k, v := range tt.envVars {
 				os.Setenv(k, v)
 			}

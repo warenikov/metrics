@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"metrics/internal/config"
 	"metrics/internal/logger"
 	"metrics/internal/middleware"
@@ -22,7 +24,11 @@ type MetricsHandler interface {
 	GetMetricsList(w http.ResponseWriter, r *http.Request)
 }
 
-func Start(cfg *config.Config, h MetricsHandler) error {
+type Server struct {
+	httpServer *http.Server
+}
+
+func New(cfg *config.Config, h MetricsHandler) *Server {
 	r := chi.NewRouter()
 
 	r.Use(middleware.LoggerMiddleware)
@@ -31,17 +37,26 @@ func Start(cfg *config.Config, h MetricsHandler) error {
 	r.Post("/update/{type}/{name}/{value}", h.Update)
 	r.Post("/update/", h.UpdateJSON)
 	r.Post("/value/", h.GetMetricaJSON)
-
 	r.Get("/value/{type}/{name}", h.GetMetrica)
 	r.Get("/", h.GetMetricsList)
 
-	addr := cfg.ServerAddr
+	return &Server{
+		httpServer: &http.Server{
+			Addr:    cfg.ServerAddr,
+			Handler: r,
+		},
+	}
+}
 
-	logger.Log.Debug("Starting server on http://" + addr)
-
-	if err := http.ListenAndServe(addr, r); err != nil {
+func (s *Server) Start() error {
+	logger.Log.Debug("Starting server on http://" + s.httpServer.Addr)
+	if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
-
 	return nil
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	logger.Log.Info("Shutting down server...")
+	return s.httpServer.Shutdown(ctx)
 }

@@ -16,20 +16,38 @@ type FileBackedRepo struct {
 	mem      *MemStorage
 	filePath string
 	interval time.Duration
+	file     *os.File
 }
 
-func NewFileBackedRepo(mem *MemStorage, filePath string, intervalSec int) *FileBackedRepo {
-	return &FileBackedRepo{
+func NewFileBackedRepo(mem *MemStorage, filePath string, intervalSec int, restore bool) *FileBackedRepo {
+
+	f, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, filePermissions)
+	if err != nil {
+		logger.Log.Panic("Failed to open file", zap.String("filePath", filePath), zap.Error(err))
+	}
+
+	repo := &FileBackedRepo{
 		mem:      mem,
 		filePath: filePath,
 		interval: time.Duration(intervalSec) * time.Second,
+		file:     f,
 	}
+
+	if restore {
+		if err := repo.load(); err != nil {
+			logger.Log.Error("Error loading file backed repo", zap.Error(err))
+		}
+	}
+
+	return repo
 }
 
 func (r *FileBackedRepo) UpdateGauges(m models.Metrics) (models.Metrics, error) {
 	result, err := r.mem.UpdateGauges(m)
 	if err == nil && r.interval == 0 {
-		r.saveToFile()
+		if err := r.saveToFile(); err != nil {
+			logger.Log.Error("Failed to save metrics to file", zap.Error(err))
+		}
 	}
 	return result, err
 }
@@ -37,7 +55,9 @@ func (r *FileBackedRepo) UpdateGauges(m models.Metrics) (models.Metrics, error) 
 func (r *FileBackedRepo) UpdateCounter(m models.Metrics) (models.Metrics, error) {
 	result, err := r.mem.UpdateCounter(m)
 	if err == nil && r.interval == 0 {
-		r.saveToFile()
+		if err := r.saveToFile(); err != nil {
+			logger.Log.Error("Failed to save metrics to file", zap.Error(err))
+		}
 	}
 	return result, err
 }
@@ -50,7 +70,7 @@ func (r *FileBackedRepo) GetListMetrics() ([]models.Metrics, error) {
 	return r.mem.GetListMetrics()
 }
 
-func (r *FileBackedRepo) Load() error {
+func (r *FileBackedRepo) load() error {
 	data, err := os.ReadFile(r.filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -86,34 +106,32 @@ func (r *FileBackedRepo) RunSave() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		r.saveToFile()
+		if err := r.saveToFile(); err != nil {
+			logger.Log.Error("Failed to save metrics to file", zap.Error(err))
+		}
 	}
 }
 
 func (r *FileBackedRepo) Save() error {
-	metrics, err := r.mem.GetListMetrics()
-	if err != nil {
-		return err
-	}
-	data, err := json.Marshal(metrics)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(r.filePath, data, filePermissions)
+	return r.saveToFile()
 }
 
-func (r *FileBackedRepo) saveToFile() {
+func (r *FileBackedRepo) saveToFile() error {
 	metrics, err := r.mem.GetListMetrics()
 	if err != nil {
 		logger.Log.Error("Error getting metrics for save", zap.Error(err))
-		return
+		return err
 	}
-	data, err := json.Marshal(metrics)
-	if err != nil {
-		logger.Log.Error("Error marshaling metrics", zap.Error(err))
-		return
+
+	encoder := json.NewEncoder(r.file)
+	if err = encoder.Encode(metrics); err != nil {
+		logger.Log.Error("Error encoding metrics to file", zap.Error(err))
+		return err
 	}
-	if err := os.WriteFile(r.filePath, data, filePermissions); err != nil {
-		logger.Log.Error("Error writing metrics to file", zap.Error(err))
-	}
+
+	return nil
+}
+
+func (r *FileBackedRepo) Close() error {
+	return r.file.Close()
 }

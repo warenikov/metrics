@@ -3,15 +3,15 @@ package handler
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"html/template"
-	"log"
 	"metrics/internal/logger"
 	models "metrics/internal/model"
 	"metrics/internal/service"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 )
 
 const metricsTemplate = `
@@ -49,14 +49,14 @@ func NewHandler(svc Service) *Handler {
 func (h *Handler) GetMetricsList(w http.ResponseWriter, r *http.Request) {
 	metrics, err := h.svc.GetListMetrics()
 	if err != nil {
-		log.Printf("Failed to get metrics list: %v", err)
+		logger.Log.Error("Can't get metrics", zap.Error(err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err = tmpl.Execute(w, metrics); err != nil {
-		log.Printf("failed to execute template: %v", err)
+		logger.Log.Error("Can't execute template", zap.Error(err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
@@ -86,7 +86,7 @@ func (h *Handler) UpdateJSON(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewDecoder(r.Body).Decode(&metrica)
 	if err != nil {
-		logger.Log.Error(fmt.Sprintf("Failed to decode JSON: %v", err))
+		logger.Log.Debug("Failed to decode JSON", zap.Error(err))
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
@@ -94,18 +94,20 @@ func (h *Handler) UpdateJSON(w http.ResponseWriter, r *http.Request) {
 
 	deltaVal := "nil"
 	if metrica.Delta != nil {
-		deltaVal = fmt.Sprintf("%d", *metrica.Delta)
+		deltaVal = strconv.FormatInt(int64(*metrica.Delta), 10)
 	}
 
 	valueVal := "nil"
 	if metrica.Value != nil {
-		valueVal = fmt.Sprintf("%f", *metrica.Value)
+		valueVal = strconv.FormatFloat(*metrica.Value, 'f', -1, 64)
 	}
-
-	logger.Log.Debug(fmt.Sprintf(
-		"UPDATE: ID=%s, Type=%s, Delta=%s, Value=%s",
-		metrica.ID, metrica.MType, deltaVal, valueVal,
-	))
+	logger.Log.Debug("Update:",
+		zap.String("ID", metrica.ID),
+		zap.String("Type", metrica.MType),
+		zap.String("Delta", deltaVal),
+		zap.String("Value", valueVal),
+		zap.Error(err),
+	)
 
 	valStr := metrica.ValueString()
 	_, err = h.svc.ParseAndSave(metrica.MType, metrica.ID, valStr)
@@ -138,40 +140,51 @@ func (h *Handler) GetMetricaJSON(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewDecoder(r.Body).Decode(&metrica)
 	if err != nil {
-		logger.Log.Error(fmt.Sprintf("GetMetricaJson: Decode error: %v", err))
+		logger.Log.Debug("GetMetricaJson: Decode error", zap.Error(err))
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
 
-	logger.Log.Debug(fmt.Sprintf("GetMetricaJson: Request for ID=%s, Type=%s", metrica.ID, metrica.MType))
-
+	logger.Log.Debug("GetMetricaJson: Request for",
+		zap.String("ID", metrica.ID),
+		zap.String("Type", metrica.MType),
+	)
 	foundMetrica, err := h.svc.GetMetrica(metrica.MType, metrica.ID)
 	if err != nil {
-		logger.Log.Warn(fmt.Sprintf("GetMetricaJson: Metric %s not found or error: %v", metrica.ID, err))
+		logger.Log.Debug("GetMetricaJson error",
+			zap.String("Metrica name", metrica.ID),
+			zap.Error(err),
+		)
 		h.errorProcess(err, w)
 		return
 	}
 
 	dVal, vVal := "nil", "nil"
 	if foundMetrica.Delta != nil {
-		dVal = fmt.Sprintf("%d", *foundMetrica.Delta)
+		dVal = strconv.FormatInt(*foundMetrica.Delta, 10)
 	}
 	if foundMetrica.Value != nil {
-		vVal = fmt.Sprintf("%f", *foundMetrica.Value)
+		vVal = strconv.FormatFloat(*foundMetrica.Value, 'f', -1, 64)
 	}
 
-	logger.Log.Debug(fmt.Sprintf("GetMetricaJson: Found in storage: ID=%s, Delta=%s, Value=%s",
-		foundMetrica.ID, dVal, vVal))
+	logger.Log.Debug("GetMetricaJson: Found in storage: ",
+		zap.String("ID", foundMetrica.ID),
+		zap.String("delta", dVal),
+		zap.String("val", vVal),
+	)
 
 	resp, err := json.Marshal(foundMetrica)
 	if err != nil {
-		logger.Log.Error(fmt.Sprintf("GetMetricaJson: Marshal error: %v", err))
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		logger.Log.Debug("GetMetricaJson: Marshal error",
+			zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	logger.Log.Debug(fmt.Sprintf("GetMetricaJson: Sending JSON: %s", string(resp)))
+	logger.Log.Debug("GetMetricaJson: Sending JSON",
+		zap.String("Json", string(resp)),
+	)
 
 	w.Header().Set("Content-Type", models.ContentTypeJSON)
 	w.WriteHeader(http.StatusOK)

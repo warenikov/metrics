@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"metrics/internal/config"
 	"metrics/internal/handler"
 	"metrics/internal/logger"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -22,13 +24,7 @@ func main() {
 	}
 
 	mem := repository.NewMemStorage()
-	repo := repository.NewFileBackedRepo(mem, cfg.FileStoragePath, cfg.StoreInterval)
-
-	if cfg.Restore {
-		if err := repo.Load(); err != nil {
-			logger.Log.Error("Failed to load metrics from file", zap.Error(err))
-		}
-	}
+	repo := repository.NewFileBackedRepo(mem, cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
 
 	if cfg.StoreInterval > 0 {
 		go repo.RunSave()
@@ -36,19 +32,30 @@ func main() {
 
 	svc := service.NewMetricsService(repo)
 	h := handler.NewHandler(svc)
+	srv := server.New(cfg, h)
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	go func() {
-		if err := server.Start(cfg, h); err != nil {
+		if err := srv.Start(); err != nil {
 			logger.Log.Fatal("Failed to start server", zap.Error(err))
 		}
 	}()
+	logger.Log.Info("Server started", zap.String("host", cfg.ServerAddr))
+	<-ctx.Done()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	<-quit
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Log.Error("Failed to shutdown server", zap.Error(err))
+	}
 
 	if err := repo.Save(); err != nil {
-		logger.Log.Error("Failed to save metrics on shutdown", zap.Error(err))
+		logger.Log.Error("Failed to save metrics to file", zap.Error(err))
+	}
+
+	if err := repo.Close(); err != nil {
+		logger.Log.Error("Failed to close repository", zap.Error(err))
 	}
 }

@@ -15,6 +15,8 @@ import (
 	"reflect"
 	"runtime"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 var (
@@ -194,7 +196,7 @@ func (m *MetricaAgent) Send() {
 func (m *MetricaAgent) sendGauge(name string, value float64) {
 	data, err := json.Marshal(&models.Metrics{ID: name, Value: &value, MType: models.Gauge})
 	if err != nil {
-		logger.Log.Error(fmt.Sprintf("failed to marshal gauge: %v", err))
+		logger.Log.Error("failed to marshal gauge", zap.Error(err))
 		return
 	}
 	m.postRequest(data, name)
@@ -204,7 +206,7 @@ func (m *MetricaAgent) sendGauge(name string, value float64) {
 func (m *MetricaAgent) sendCounter(name string, value int64) {
 	data, err := json.Marshal(&models.Metrics{ID: name, Delta: &value, MType: models.Counter})
 	if err != nil {
-		logger.Log.Error(fmt.Sprintf("failed to marshal counter: %v", err))
+		logger.Log.Error("failed to marshal counter", zap.Error(err))
 		return
 	}
 	m.postRequest(data, name)
@@ -215,7 +217,7 @@ func (m *MetricaAgent) compress(data []byte) (*bytes.Buffer, error) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	if _, err := gz.Write(data); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to compress data: %v", err)
 	}
 	if err := gz.Close(); err != nil {
 		return nil, err
@@ -226,13 +228,14 @@ func (m *MetricaAgent) compress(data []byte) (*bytes.Buffer, error) {
 func (m *MetricaAgent) postRequest(data []byte, name string) {
 	compressedData, err := m.compress(data)
 	if err != nil {
-		logger.Log.Error(fmt.Sprintf("failed to compress data: %v", err))
+		logger.Log.Error("failed to compress data: %v", zap.Error(err))
+
 		return
 	}
 
 	req, err := http.NewRequest("POST", m.serverAddr+"/update/", compressedData)
 	if err != nil {
-		logger.Log.Error(fmt.Sprintf("failed to create request: %v", err))
+		logger.Log.Error("failed to create request", zap.Error(err))
 		return
 	}
 
@@ -243,7 +246,10 @@ func (m *MetricaAgent) postRequest(data []byte, name string) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Log.Error(fmt.Sprintf("failed to send metrica %s: %v", name, err))
+		logger.Log.Error("failed to create request",
+			zap.String("metrica name", name),
+			zap.Error(err),
+		)
 		return
 	}
 	defer resp.Body.Close()
@@ -253,7 +259,7 @@ func (m *MetricaAgent) postRequest(data []byte, name string) {
 	if resp.Header.Get("Content-Encoding") == "gzip" {
 		gz, err := gzip.NewReader(resp.Body)
 		if err != nil {
-			logger.Log.Error(fmt.Sprintf("failed to create gzip reader for response: %v", err))
+			logger.Log.Error("failed to create gzip reader for response", zap.Error(err))
 			return
 		}
 		defer gz.Close()
@@ -262,7 +268,7 @@ func (m *MetricaAgent) postRequest(data []byte, name string) {
 
 	_, err = io.ReadAll(reader)
 	if err != nil {
-		logger.Log.Error(fmt.Sprintf("failed to read response body: %v", err))
+		logger.Log.Error("failed to read response body", zap.Error(err))
 		return
 	}
 }
