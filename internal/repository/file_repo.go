@@ -127,6 +127,13 @@ func (r *FileBackedRepo) saveToFile() error {
 		return err
 	}
 
+	if err := r.file.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := r.file.Seek(0, 0); err != nil {
+		return err
+	}
+
 	encoder := json.NewEncoder(r.file)
 	if err = encoder.Encode(metrics); err != nil {
 		logger.Log.Error("Error encoding metrics to file", zap.Error(err))
