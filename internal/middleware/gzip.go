@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"io"
 	"metrics/internal/logger"
+	"metrics/pkg/compress"
 	"net/http"
 	"strings"
 
@@ -35,7 +36,7 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 func GzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
-			gzReader, err := gzip.NewReader(r.Body)
+			gzReader, err := compress.NewReader(r.Body)
 			if err != nil {
 				logger.Log.Error("error while gzip", zap.Error(err))
 				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

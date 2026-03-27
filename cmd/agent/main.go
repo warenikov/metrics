@@ -9,9 +9,11 @@ import (
 )
 
 func main() {
-	cfg := config.LoadAgentConfig()
+	cfg, err := config.LoadAgentConfig()
+	if err != nil {
+		logger.Log.Fatal("Invalid config", zap.Error(err))
+	}
 	agent := agent.NewMetricaAgent(cfg)
-	//инициализируем логгер
 	if err := logger.Initialize(cfg.LogLevel); err != nil {
 		logger.Log.Fatal("Failed to initialize logger", zap.Error(err))
 	}

@@ -13,38 +13,42 @@ import (
 const filePermissions = 0666
 
 type FileBackedRepo struct {
-	mem      *MemStorage
-	filePath string
-	interval time.Duration
-	file     *os.File
+	mem            *MemStorage
+	filePath       string
+	interval       time.Duration
+	file           *os.File
+	SyncDumpToFile bool
 }
 
-func NewFileBackedRepo(mem *MemStorage, filePath string, intervalSec int, restore bool) *FileBackedRepo {
+func NewFileBackedRepo(mem *MemStorage, filePath string, intervalSec uint, restore bool) (*FileBackedRepo, error) {
 
 	f, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, filePermissions)
 	if err != nil {
-		logger.Log.Panic("Failed to open file", zap.String("filePath", filePath), zap.Error(err))
+		logger.Log.Error("Failed to open file", zap.String("filePath", filePath), zap.Error(err))
+		return nil, err
 	}
 
 	repo := &FileBackedRepo{
-		mem:      mem,
-		filePath: filePath,
-		interval: time.Duration(intervalSec) * time.Second,
-		file:     f,
+		mem:            mem,
+		filePath:       filePath,
+		interval:       time.Duration(intervalSec) * time.Second,
+		file:           f,
+		SyncDumpToFile: intervalSec == 0,
 	}
 
 	if restore {
-		if err := repo.load(); err != nil {
+		if err = repo.load(); err != nil {
 			logger.Log.Error("Error loading file backed repo", zap.Error(err))
+			return nil, err
 		}
 	}
 
-	return repo
+	return repo, nil
 }
 
 func (r *FileBackedRepo) UpdateGauges(m models.Metrics) (models.Metrics, error) {
 	result, err := r.mem.UpdateGauges(m)
-	if err == nil && r.interval == 0 {
+	if err == nil && r.SyncDumpToFile {
 		if err := r.saveToFile(); err != nil {
 			logger.Log.Error("Failed to save metrics to file", zap.Error(err))
 		}
@@ -54,7 +58,7 @@ func (r *FileBackedRepo) UpdateGauges(m models.Metrics) (models.Metrics, error) 
 
 func (r *FileBackedRepo) UpdateCounter(m models.Metrics) (models.Metrics, error) {
 	result, err := r.mem.UpdateCounter(m)
-	if err == nil && r.interval == 0 {
+	if err == nil && r.SyncDumpToFile {
 		if err := r.saveToFile(); err != nil {
 			logger.Log.Error("Failed to save metrics to file", zap.Error(err))
 		}

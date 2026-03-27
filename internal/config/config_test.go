@@ -1,11 +1,11 @@
 package config
 
 import (
-	"flag"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadServerConfig(t *testing.T) {
@@ -16,8 +16,9 @@ func TestLoadServerConfig(t *testing.T) {
 		name             string
 		envVars          map[string]string
 		args             []string
+		wantErr          bool
 		expectedAddr     string
-		expectedInterval int
+		expectedInterval uint
 		expectedFilePath string
 		expectedRestore  bool
 	}{
@@ -49,29 +50,41 @@ func TestLoadServerConfig(t *testing.T) {
 			expectedRestore:  false,
 		},
 		{
-			name:             "invalid env stays default",
-			envVars:          map[string]string{"STORE_INTERVAL": "notanumber"},
-			args:             []string{},
-			expectedAddr:     "localhost:8080",
-			expectedInterval: 300,
-			expectedFilePath: "storage.txt",
-			expectedRestore:  true,
+			name:    "invalid env returns error",
+			envVars: map[string]string{"STORE_INTERVAL": "notanumber"},
+			args:    []string{},
+			wantErr: true,
+		},
+		{
+			name:    "negative interval via env returns error",
+			envVars: map[string]string{"STORE_INTERVAL": "-5"},
+			args:    []string{},
+			wantErr: true,
+		},
+		{
+			name:    "negative interval via flag returns error",
+			envVars: map[string]string{},
+			args:    []string{"-i", "-5"},
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for k, v := range tt.envVars {
-				k := k
-				os.Setenv(k, v)
-				t.Cleanup(func() { os.Unsetenv(k) })
+				t.Setenv(k, v)
 			}
 
-			flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
 			os.Args = append([]string{"test_bin"}, tt.args...)
 
-			cfg := LoadServerConfig()
+			cfg, err := LoadServerConfig()
 
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedAddr, cfg.ServerAddr)
 			assert.Equal(t, tt.expectedInterval, cfg.StoreInterval)
 			assert.Equal(t, tt.expectedFilePath, cfg.FileStoragePath)
@@ -88,6 +101,7 @@ func TestLoadAgentConfig(t *testing.T) {
 		name           string
 		envVars        map[string]string
 		args           []string
+		wantErr        bool
 		expectedAddr   string
 		expectedReport int
 		expectedPoll   int
@@ -117,28 +131,29 @@ func TestLoadAgentConfig(t *testing.T) {
 			expectedPoll:   7,
 		},
 		{
-			name:           "invalid env stays default",
-			envVars:        map[string]string{"REPORT_INTERVAL": "fast", "POLL_INTERVAL": "slow"},
-			args:           []string{},
-			expectedAddr:   "localhost:8080",
-			expectedReport: 10,
-			expectedPoll:   2,
+			name:    "invalid env returns error",
+			envVars: map[string]string{"REPORT_INTERVAL": "fast", "POLL_INTERVAL": "slow"},
+			args:    []string{},
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for k, v := range tt.envVars {
-				k := k
-				os.Setenv(k, v)
-				t.Cleanup(func() { os.Unsetenv(k) })
+				t.Setenv(k, v)
 			}
 
-			flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
 			os.Args = append([]string{"test_bin"}, tt.args...)
 
-			cfg := LoadAgentConfig()
+			cfg, err := LoadAgentConfig()
 
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedAddr, cfg.ServerAddr)
 			assert.Equal(t, tt.expectedReport, cfg.ReportInterval)
 			assert.Equal(t, tt.expectedPoll, cfg.PollInterval)

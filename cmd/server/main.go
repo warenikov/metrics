@@ -17,14 +17,20 @@ import (
 )
 
 func main() {
-	cfg := config.LoadServerConfig()
+	cfg, err := config.LoadServerConfig()
+	if err != nil {
+		logger.Log.Fatal("Invalid config", zap.Error(err))
+	}
 
 	if err := logger.Initialize(cfg.LogLevel); err != nil {
 		logger.Log.Fatal("Failed to initialize logger", zap.Error(err))
 	}
 
 	mem := repository.NewMemStorage()
-	repo := repository.NewFileBackedRepo(mem, cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
+	repo, e := repository.NewFileBackedRepo(mem, cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
+	if e != nil {
+		logger.Log.Fatal("Failed to initialize repository")
+	}
 
 	if cfg.StoreInterval > 0 {
 		go repo.RunSave()

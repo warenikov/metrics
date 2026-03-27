@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +9,7 @@ import (
 	"metrics/internal/config"
 	"metrics/internal/logger"
 	models "metrics/internal/model"
+	"metrics/pkg/compress"
 	"net/http"
 	"reflect"
 	"runtime"
@@ -212,21 +211,8 @@ func (m *MetricaAgent) sendCounter(name string, value int64) {
 	m.postRequest(data, name)
 }
 
-// compress сжимает данные методом Gzip
-func (m *MetricaAgent) compress(data []byte) (*bytes.Buffer, error) {
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	if _, err := gz.Write(data); err != nil {
-		return nil, fmt.Errorf("failed to compress data: %v", err)
-	}
-	if err := gz.Close(); err != nil {
-		return nil, err
-	}
-	return &buf, nil
-}
-
 func (m *MetricaAgent) postRequest(data []byte, name string) {
-	compressedData, err := m.compress(data)
+	compressedData, err := compress.Compress(data)
 	if err != nil {
 		logger.Log.Error("failed to compress data: %v", zap.Error(err))
 
@@ -257,7 +243,7 @@ func (m *MetricaAgent) postRequest(data []byte, name string) {
 	var reader = resp.Body
 
 	if resp.Header.Get("Content-Encoding") == "gzip" {
-		gz, err := gzip.NewReader(resp.Body)
+		gz, err := compress.NewReader(resp.Body)
 		if err != nil {
 			logger.Log.Error("failed to create gzip reader for response", zap.Error(err))
 			return

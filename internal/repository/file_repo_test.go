@@ -85,16 +85,15 @@ func TestFileBackedRepo_Load(t *testing.T) {
 			}
 
 			mem := NewMemStorage()
-			repo := NewFileBackedRepo(mem, fp, 300, true)
-
-			err := repo.load()
+			repo, err := NewFileBackedRepo(mem, fp, 300, true)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("Load() error = %v, wantErr = %v", err, tt.wantErr)
+				t.Fatalf("NewFileBackedRepo() error = %v, wantErr = %v", err, tt.wantErr)
 			}
 
 			if tt.wantErr {
 				return
 			}
+			defer repo.Close()
 
 			list, _ := mem.GetListMetrics()
 			if len(list) != len(tt.wantMetrics) {
@@ -155,7 +154,10 @@ func TestFileBackedRepo_Save(t *testing.T) {
 			if tt.initialState != nil {
 				mem.metrics = tt.initialState
 			}
-			repo := NewFileBackedRepo(mem, fp, 300, true)
+			repo, e := NewFileBackedRepo(mem, fp, 300, true)
+			if e != nil {
+				t.Errorf("NewFileBackedRepo() error = %v", e)
+			}
 
 			if err := repo.Save(); err != nil {
 				t.Fatalf("Save() unexpected error: %v", err)
@@ -220,7 +222,10 @@ func TestFileBackedRepo_ImmediateSave(t *testing.T) {
 			fp := filepath.Join(dir, "storage.txt")
 
 			mem := NewMemStorage()
-			repo := NewFileBackedRepo(mem, fp, int(tt.interval/time.Second), false)
+			repo, e := NewFileBackedRepo(mem, fp, uint(tt.interval/time.Second), false)
+			if e != nil {
+				t.Errorf("NewFileBackedRepo() error = %v", e)
+			}
 
 			switch tt.metric.MType {
 			case models.Gauge:
