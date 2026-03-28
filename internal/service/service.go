@@ -24,13 +24,13 @@ type Repository interface {
 	GetListMetrics() ([]models.Metrics, error)
 }
 
-func (s *MetricsService) GetListMetrics() ([]models.Metrics, error) {
-	return s.repo.GetListMetrics()
-}
-
 // NewMetricsService — конструктор, принимающий интерфейс репозитория
 func NewMetricsService(r Repository) *MetricsService {
 	return &MetricsService{repo: r}
+}
+
+func (s *MetricsService) GetListMetrics() ([]models.Metrics, error) {
+	return s.repo.GetListMetrics()
 }
 
 func (s *MetricsService) GetMetrica(mType, id string) (*models.Metrics, error) {

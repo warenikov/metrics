@@ -1,17 +1,21 @@
 package agent
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"io"
 	"math/rand/v2"
 	"metrics/internal/config"
+	"metrics/internal/logger"
 	models "metrics/internal/model"
-	"metrics/internal/utils"
+	"metrics/pkg/compress"
 	"net/http"
 	"reflect"
 	"runtime"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 var (
@@ -36,7 +40,7 @@ type GaugeMertics struct {
 	MCacheSys     float64 `json:"mcache_sys"`
 	MSpanInuse    float64 `json:"mspan_inuse"`
 	MSpanSys      float64 `json:"mspan_sys"`
-	Malloc        float64 `json:"malloc"`
+	Mallocs       float64 `json:"mallocs"`
 	NextGC        float64 `json:"next_gc"`
 	NumForcedGC   float64 `json:"num_forced_gc"`
 	NumGC         float64 `json:"num_gc"`
@@ -90,7 +94,7 @@ func (m *MetricaAgent) Run() {
 
 func (m *MetricaAgent) Poll() error {
 	runtime.ReadMemStats(m.ms)
-
+	logger.Log.Debug("Poll metrics")
 	m.collectMerticsReflection()
 
 	return nil
@@ -135,7 +139,7 @@ func (m *MetricaAgent) collectMerticsManual() {
 	m.gauges.MCacheInuse = float64(m.ms.MCacheInuse)
 	m.gauges.MCacheSys = float64(m.ms.MCacheSys)
 	m.gauges.MSpanInuse = float64(m.ms.MSpanInuse)
-	m.gauges.Malloc = float64(m.ms.Mallocs)
+	m.gauges.Mallocs = float64(m.ms.Mallocs)
 	m.gauges.NextGC = float64(m.ms.NextGC)
 	m.gauges.NumForcedGC = float64(m.ms.NumForcedGC)
 	m.gauges.NumGC = float64(m.ms.NumGC)
@@ -169,7 +173,7 @@ func (m *MetricaAgent) Send() {
 	m.sendGauge("MCacheSys", g.MCacheSys)
 	m.sendGauge("MSpanInuse", g.MSpanInuse)
 	m.sendGauge("MSpanSys", g.MSpanSys)
-	m.sendGauge("Malloc", g.Malloc)
+	m.sendGauge("Mallocs", g.Mallocs)
 	m.sendGauge("NextGC", g.NextGC)
 	m.sendGauge("NumForcedGC", g.NumForcedGC)
 	m.sendGauge("NumGC", g.NumGC)
@@ -183,35 +187,74 @@ func (m *MetricaAgent) Send() {
 
 	// Отправляем Counter метрики
 	m.sendCounter("PollCount", m.counters.PollCount)
+
+	logger.Log.Debug("Send metrics")
 }
 
 // sendGauge Вспомогательный метод для отправки Gauge
 func (m *MetricaAgent) sendGauge(name string, value float64) {
-	url := fmt.Sprintf("/update/gauge/%s/%s", name, utils.Float64ToString(value))
-	e := m.sender(m.serverAddr, url)
-	if e != nil {
-		log.Printf("failed to send gauge %s value %f: %v", name, value, e)
+	data, err := json.Marshal(&models.Metrics{ID: name, Value: &value, MType: models.Gauge})
+	if err != nil {
+		logger.Log.Error("failed to marshal gauge", zap.Error(err))
+		return
 	}
+	m.postRequest(data, name)
 }
 
 // sendCounter Вспомогательный метод для отправки Counter
 func (m *MetricaAgent) sendCounter(name string, value int64) {
-	url := fmt.Sprintf("/update/counter/%s/%s", name, utils.Int64ToString(value))
-	e := m.sender(m.serverAddr, url)
-	if e != nil {
-		log.Printf("failed to send counter %s value %d: %v", name, value, e)
+	data, err := json.Marshal(&models.Metrics{ID: name, Delta: &value, MType: models.Counter})
+	if err != nil {
+		logger.Log.Error("failed to marshal counter", zap.Error(err))
+		return
 	}
+	m.postRequest(data, name)
 }
 
-func (m *MetricaAgent) sender(addr, url string) error {
-	resp, err := http.Post(fmt.Sprintf("%s%s", addr, url), models.ContentTypeText, nil)
+func (m *MetricaAgent) postRequest(data []byte, name string) {
+	compressedData, err := compress.Compress(data)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrSendMetrica, err)
+		logger.Log.Error("failed to compress data: %v", zap.Error(err))
+
+		return
+	}
+
+	req, err := http.NewRequest("POST", m.serverAddr+"/update/", compressedData)
+	if err != nil {
+		logger.Log.Error("failed to create request", zap.Error(err))
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Log.Error("failed to create request",
+			zap.String("metrica name", name),
+			zap.Error(err),
+		)
+		return
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: server returned status %d", ErrSendMetrica, resp.StatusCode)
+	var reader = resp.Body
+
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gz, err := compress.NewReader(resp.Body)
+		if err != nil {
+			logger.Log.Error("failed to create gzip reader for response", zap.Error(err))
+			return
+		}
+		defer gz.Close()
+		reader = gz
 	}
-	return nil
+
+	_, err = io.ReadAll(reader)
+	if err != nil {
+		logger.Log.Error("failed to read response body", zap.Error(err))
+		return
+	}
 }

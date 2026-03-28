@@ -1,6 +1,8 @@
 package models
 
-import "metrics/internal/utils"
+import (
+	"strconv"
+)
 
 const (
 	Counter = "counter"
@@ -22,14 +24,18 @@ type Metrics struct {
 
 func (m Metrics) ValueString() string {
 	switch m.MType {
-	case Gauge:
-		if m.Value != nil {
-			return utils.Float64ToString(*m.Value)
+	case "gauge":
+		if m.Value == nil {
+			return "0"
 		}
-	case Counter:
-		if m.Delta != nil {
-			return utils.Int64ToString(*m.Delta)
+
+		return strconv.FormatFloat(*m.Value, 'f', -1, 64)
+	case "counter":
+		if m.Delta == nil {
+			return "0"
 		}
+		return strconv.FormatInt(*m.Delta, 10)
+	default:
+		return ""
 	}
-	return ""
 }
