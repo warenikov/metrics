@@ -36,6 +36,7 @@ type Service interface {
 	ParseAndSave(mType, id, value string) (models.Metrics, error)
 	GetMetrica(mType, id string) (*models.Metrics, error)
 	GetListMetrics() ([]models.Metrics, error)
+	PingDB() error
 }
 
 type Handler struct {
@@ -213,6 +214,17 @@ func (h *Handler) GetMetrica(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(result))
+}
+
+func (h *Handler) PingDB(w http.ResponseWriter, r *http.Request) {
+	err := h.svc.PingDB()
+	if err != nil {
+		h.errorProcess(err, w)
+		return
+	}
+
+	w.Header().Set("Content-Type", models.ContentTypeText)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *Handler) errorProcess(err error, w http.ResponseWriter) {

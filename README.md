@@ -42,3 +42,7 @@ git fetch template && git checkout template/v2 .github
 - **Clean Architecture**
 - **Hexagonal Architecture**
 - **Layered Architecture**
+
+локальная разработка БД postgres:
+- Host: localhost:5432
+- DB: dbname, User: userusernamename, Password: password

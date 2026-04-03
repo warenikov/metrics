@@ -9,12 +9,14 @@ import (
 
 type MetricsService struct {
 	repo Repository
+	db   DB
 }
 
 var (
 	ErrInvalidValue   = errors.New("invalid metric value")
 	ErrMetricNotFound = errors.New("metric not found")
 	ErrTypeMetric     = errors.New("invalid metric type")
+	ErrDBNotInit      = errors.New("database not initialized")
 )
 
 type Repository interface {
@@ -24,9 +26,13 @@ type Repository interface {
 	GetListMetrics() ([]models.Metrics, error)
 }
 
+type DB interface {
+	Ping() error
+}
+
 // NewMetricsService — конструктор, принимающий интерфейс репозитория
-func NewMetricsService(r Repository) *MetricsService {
-	return &MetricsService{repo: r}
+func NewMetricsService(r Repository, db DB) *MetricsService {
+	return &MetricsService{repo: r, db: db}
 }
 
 func (s *MetricsService) GetListMetrics() ([]models.Metrics, error) {
@@ -85,4 +91,12 @@ func (s *MetricsService) ParseAndSave(mType, id, value string) (models.Metrics, 
 	default:
 		return metric, ErrTypeMetric
 	}
+}
+
+func (s *MetricsService) PingDB() error {
+	if s.db == nil {
+		return ErrDBNotInit
+	}
+
+	return s.db.Ping()
 }

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"metrics/internal/repository"
 	"net/http"
 	"net/http/httptest"
@@ -16,9 +17,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// mockService реализует интерфейс Service для тестирования хендлера в изоляции.
+type mockService struct {
+	pingErr error
+}
+
+func (m *mockService) PingDB() error { return m.pingErr }
+func (m *mockService) ParseAndSave(mType, id, value string) (models.Metrics, error) {
+	return models.Metrics{}, nil
+}
+func (m *mockService) GetMetrica(mType, id string) (*models.Metrics, error) { return nil, nil }
+func (m *mockService) GetListMetrics() ([]models.Metrics, error)            { return nil, nil }
+
 func TestHandler_Update(t *testing.T) {
 	repo := repository.NewMemStorage()
-	svc := service.NewMetricsService(repo)
+	svc := service.NewMetricsService(repo, nil)
 	h := NewHandler(svc)
 
 	// 2. Описываем сценарии
@@ -108,7 +121,7 @@ func TestHandler_Update(t *testing.T) {
 
 func TestHandler_GetMetrica(t *testing.T) {
 	repo := repository.NewMemStorage()
-	svc := service.NewMetricsService(repo)
+	svc := service.NewMetricsService(repo, nil)
 	h := NewHandler(svc)
 
 	var valCounter int64 = 10 // Явно указываем int64
@@ -167,7 +180,7 @@ func TestHandler_GetMetrica(t *testing.T) {
 
 func TestHandler_UpdateJSON(t *testing.T) {
 	repo := repository.NewMemStorage()
-	svc := service.NewMetricsService(repo)
+	svc := service.NewMetricsService(repo, nil)
 	h := NewHandler(svc)
 
 	r := chi.NewRouter()
@@ -229,7 +242,7 @@ func TestHandler_UpdateJSON(t *testing.T) {
 
 func TestHandler_GetMetricaJSON(t *testing.T) {
 	repo := repository.NewMemStorage()
-	svc := service.NewMetricsService(repo)
+	svc := service.NewMetricsService(repo, nil)
 	h := NewHandler(svc)
 
 	// Предзаполняем хранилище
@@ -328,7 +341,7 @@ func TestHandler_GetMetricsList(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := repository.NewMemStorage()
 			tt.setup(repo)
-			svc := service.NewMetricsService(repo)
+			svc := service.NewMetricsService(repo, nil)
 			h := NewHandler(svc)
 
 			r := chi.NewRouter()
@@ -344,6 +357,41 @@ func TestHandler_GetMetricsList(t *testing.T) {
 			for _, s := range tt.expectInBody {
 				assert.Contains(t, w.Body.String(), s)
 			}
+		})
+	}
+}
+
+func TestHandler_PingDB(t *testing.T) {
+	tests := []struct {
+		name           string
+		pingErr        error
+		expectedStatus int
+	}{
+		{
+			name:           "БД доступна",
+			pingErr:        nil,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "БД недоступна",
+			pingErr:        errors.New("connection refused"),
+			expectedStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &mockService{pingErr: tt.pingErr}
+			h := NewHandler(svc)
+
+			r := chi.NewRouter()
+			r.Get("/ping", h.PingDB)
+
+			req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
 		})
 	}
 }

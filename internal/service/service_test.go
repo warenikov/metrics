@@ -7,6 +7,13 @@ import (
 	"testing"
 )
 
+// mockDB реализует интерфейс DB для тестирования сервиса в изоляции.
+type mockDB struct {
+	pingErr error
+}
+
+func (m *mockDB) Ping() error { return m.pingErr }
+
 func TestMetricsService_ParseAndSave_Integration(t *testing.T) {
 
 	strPtr := func(s string) *string { return &s }
@@ -111,7 +118,7 @@ func TestMetricsService_ParseAndSave_Integration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := repository.NewMemStorage()
-			srv := NewMetricsService(repo)
+			srv := NewMetricsService(repo, nil)
 
 			if tt.setupValue != nil {
 				_, err := srv.ParseAndSave(tt.mType, tt.id, *tt.setupValue)
@@ -148,7 +155,7 @@ func TestMetricsService_ParseAndSave_Integration(t *testing.T) {
 
 func TestMetricsService_GetMetrica_Integration(t *testing.T) {
 	repo := repository.NewMemStorage()
-	srv := NewMetricsService(repo)
+	srv := NewMetricsService(repo, nil)
 
 	// Предзаполняем данными
 	_, _ = srv.ParseAndSave(models.Gauge, "temp", "1.23")
@@ -184,4 +191,59 @@ func TestMetricsService_GetMetrica_Integration(t *testing.T) {
 			t.Errorf("expected ErrMetricNotFound, got %v", err)
 		}
 	})
+}
+
+func TestMetricsService_PingDB(t *testing.T) {
+	repo := repository.NewMemStorage()
+
+	tests := []struct {
+		name    string
+		db      DB
+		wantErr error
+	}{
+		{
+			name:    "БД доступна",
+			db:      &mockDB{pingErr: nil},
+			wantErr: nil,
+		},
+		{
+			name:    "БД недоступна",
+			db:      &mockDB{pingErr: errors.New("connection refused")},
+			wantErr: errors.New("connection refused"),
+		},
+		{
+			name:    "БД не инициализирована",
+			db:      nil,
+			wantErr: ErrDBNotInit,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewMetricsService(repo, tt.db)
+			err := svc.PingDB()
+
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				return
+			}
+
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+
+			if tt.db == nil {
+				if !errors.Is(err, ErrDBNotInit) {
+					t.Errorf("expected ErrDBNotInit, got %v", err)
+				}
+				return
+			}
+
+			if err.Error() != tt.wantErr.Error() {
+				t.Errorf("expected error %v, got %v", tt.wantErr, err)
+			}
+		})
+	}
 }

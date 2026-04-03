@@ -15,6 +15,7 @@ type Config struct {
 	StoreInterval   uint   `env:"STORE_INTERVAL"`
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	Restore         bool   `env:"RESTORE"`
+	DbDNS           string `env:"DATABASE_DSN"`
 }
 
 func LoadServerConfig() (*Config, error) {
@@ -24,6 +25,7 @@ func LoadServerConfig() (*Config, error) {
 		StoreInterval:   300,
 		FileStoragePath: "storage.txt",
 		Restore:         true,
+		DbDNS:           "host=localhost:5432 dbname=dbname user=username password=password sslmode=disable",
 	}
 
 	if err := loadFromEnv(cfg); err != nil {
@@ -36,6 +38,7 @@ func LoadServerConfig() (*Config, error) {
 	fs.BoolVar(&cfg.Restore, "r", cfg.Restore, "Restore metrics from file")
 	fs.StringVar(&cfg.LogLevel, "l", cfg.LogLevel, "Log level")
 	fs.UintVar(&cfg.StoreInterval, "i", cfg.StoreInterval, "Store interval in seconds")
+	fs.StringVar(&cfg.DbDNS, "d", cfg.DbDNS, "Database DNS string")
 	if err := fs.Parse(flagArgs()); err != nil {
 		return nil, fmt.Errorf("invalid flag: %w", err)
 	}

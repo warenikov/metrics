@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"metrics/internal/config"
+	"metrics/internal/config/db"
 	"metrics/internal/handler"
 	"metrics/internal/logger"
 	"metrics/internal/repository"
@@ -36,7 +38,14 @@ func main() {
 		go repo.RunSave()
 	}
 
-	svc := service.NewMetricsService(repo)
+	db, err := db.Connect(cfg.DbDNS)
+	if err != nil {
+		logger.Log.Error("Failed connect to db ", zap.Error(err))
+	}
+	defer db.Conn.Close()
+
+	logger.Log.Debug(fmt.Sprintf("Connected to database %s", cfg.DbDNS))
+	svc := service.NewMetricsService(repo, db)
 	h := handler.NewHandler(svc)
 	srv := server.New(cfg, h)
 

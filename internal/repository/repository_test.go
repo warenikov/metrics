@@ -227,7 +227,7 @@ func TestMemStorage_GetListMetrics_Table(t *testing.T) {
 func TestMetricsService_GetListMetrics_Integration(t *testing.T) {
 	t.Run("empty storage returns empty slice", func(t *testing.T) {
 		repo := NewMemStorage()
-		srv := service.NewMetricsService(repo)
+		srv := service.NewMetricsService(repo, nil)
 
 		res, err := srv.GetListMetrics()
 		if err != nil {
@@ -240,7 +240,7 @@ func TestMetricsService_GetListMetrics_Integration(t *testing.T) {
 
 	t.Run("returns all saved metrics", func(t *testing.T) {
 		repo := NewMemStorage()
-		srv := service.NewMetricsService(repo)
+		srv := service.NewMetricsService(repo, nil)
 
 		// 1. Сохраняем разные типы метрик
 		_, _ = srv.ParseAndSave(models.Gauge, "g1", "1.1")
@@ -274,7 +274,7 @@ func TestMetricsService_GetListMetrics_Integration(t *testing.T) {
 
 	t.Run("counter updates correctly in list", func(t *testing.T) {
 		repo := NewMemStorage()
-		srv := service.NewMetricsService(repo)
+		srv := service.NewMetricsService(repo, nil)
 
 		// Инкрементируем один и тот же счетчик дважды
 		_, _ = srv.ParseAndSave(models.Counter, "c1", "10")
