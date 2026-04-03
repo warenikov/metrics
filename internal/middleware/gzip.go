@@ -13,7 +13,8 @@ import (
 
 type gzipResponseWriter struct {
 	http.ResponseWriter
-	Writer io.Writer
+	Writer  io.Writer
+	written bool
 }
 
 func (w *gzipResponseWriter) WriteHeader(statusCode int) {
@@ -28,6 +29,7 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 	contentType := w.Header().Get("Content-Type")
 	if strings.Contains(contentType, "application/json") || strings.Contains(contentType, "text/html") {
 		w.Header().Set("Content-Encoding", "gzip")
+		w.written = true
 		return w.Writer.Write(b)
 	}
 	return w.ResponseWriter.Write(b)
@@ -52,7 +54,6 @@ func GzipMiddleware(next http.Handler) http.Handler {
 		}
 
 		gzWriter := gzip.NewWriter(w)
-		defer gzWriter.Close()
 
 		gzw := &gzipResponseWriter{
 			ResponseWriter: w,
@@ -60,5 +61,9 @@ func GzipMiddleware(next http.Handler) http.Handler {
 		}
 
 		next.ServeHTTP(gzw, r)
+
+		if gzw.written {
+			gzWriter.Close()
+		}
 	})
 }

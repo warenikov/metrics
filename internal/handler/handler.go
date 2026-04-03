@@ -225,6 +225,7 @@ func (h *Handler) PingDB(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", models.ContentTypeText)
 	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
 }
 
 func (h *Handler) errorProcess(err error, w http.ResponseWriter) {
