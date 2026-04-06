@@ -25,7 +25,7 @@ func LoadServerConfig() (*Config, error) {
 		StoreInterval:   300,
 		FileStoragePath: "storage.txt",
 		Restore:         true,
-		DbDNS:           "host=localhost port=5432 dbname=dbname user=username password=password sslmode=disable",
+		DbDNS:           "",
 	}
 
 	if err := loadFromEnv(cfg); err != nil {
