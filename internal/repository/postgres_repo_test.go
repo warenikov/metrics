@@ -16,6 +16,7 @@ func newMockRepo(t *testing.T) (*PostgresRepo, sqlmock.Sqlmock) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
+	// напрямую создаём struct, минуя конструктор с миграциями
 	return &PostgresRepo{db: db}, mock
 }
 

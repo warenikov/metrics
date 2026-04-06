@@ -9,6 +9,7 @@ import (
 	"metrics/internal/repository"
 	"metrics/internal/server"
 	"metrics/internal/service"
+	"metrics/migrations"
 	"os"
 	"os/signal"
 	"syscall"
@@ -33,15 +34,15 @@ func main() {
 		pgxDB    *db.PgxDB
 	)
 
-	if cfg.DbDNS != "" {
+	if cfg.DBDNS != "" {
 		var dbErr error
-		pgxDB, dbErr = db.Connect(cfg.DbDNS)
+		pgxDB, dbErr = db.Connect(cfg.DBDNS)
 		if dbErr != nil {
 			logger.Log.Fatal("Failed to connect to database", zap.Error(dbErr))
 		}
 		defer pgxDB.Conn.Close()
 
-		pgRepo, pgErr := repository.NewPostgresRepo(pgxDB.Conn)
+		pgRepo, pgErr := repository.NewPostgresRepo(pgxDB.Conn, migrations.FS)
 		if pgErr != nil {
 			logger.Log.Fatal("Failed to initialize postgres repository", zap.Error(pgErr))
 		}

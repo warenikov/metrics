@@ -4,7 +4,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	models "metrics/internal/model"
+
+	"github.com/golang-migrate/migrate/v4"
+	pgxmigrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
 var ErrPGNotFound = errors.New("metric not found in db")
@@ -13,8 +18,34 @@ type PostgresRepo struct {
 	db *sql.DB
 }
 
-func NewPostgresRepo(db *sql.DB) (*PostgresRepo, error) {
+func NewPostgresRepo(db *sql.DB, migrations fs.FS) (*PostgresRepo, error) {
+	if err := runMigrations(db, migrations); err != nil {
+		return nil, fmt.Errorf("migration failed: %w", err)
+	}
 	return &PostgresRepo{db: db}, nil
+}
+
+func runMigrations(db *sql.DB, migrations fs.FS) error {
+	src, err := iofs.New(migrations, ".")
+	if err != nil {
+		return fmt.Errorf("failed to load migrations: %w", err)
+	}
+
+	driver, err := pgxmigrate.WithInstance(db, &pgxmigrate.Config{})
+	if err != nil {
+		return fmt.Errorf("failed to create pgx driver: %w", err)
+	}
+
+	m, err := migrate.NewWithInstance("iofs", src, "pgx5", driver)
+	if err != nil {
+		return fmt.Errorf("failed to create migrate instance: %w", err)
+	}
+
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("failed to apply migrations: %w", err)
+	}
+
+	return nil
 }
 
 func (r *PostgresRepo) UpdateGauges(m models.Metrics) (models.Metrics, error) {
