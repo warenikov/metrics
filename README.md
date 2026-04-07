@@ -45,4 +45,4 @@ git fetch template && git checkout template/v2 .github
 
 локальная разработка БД postgres:
 - Host: localhost:5432
-- DB: dbname, User: userusernamename, Password: password
+- DB: dbname, User: username, Password: password

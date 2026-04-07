@@ -246,3 +246,59 @@ func TestPostgresRepo_GetListMetrics(t *testing.T) {
 		})
 	}
 }
+
+func TestPostgresRepo_UpdateBatch(t *testing.T) {
+	floatVal := 1.5
+	int64Val := int64(5)
+
+	tests := []struct {
+		name    string
+		metrics []models.Metrics
+		setup   func(mock sqlmock.Sqlmock)
+		wantErr bool
+	}{
+		{
+			name: "gauge и counter батч",
+			metrics: []models.Metrics{
+				{ID: "Alloc", MType: models.Gauge, Value: &floatVal},
+				{ID: "PollCount", MType: models.Counter, Delta: &int64Val},
+			},
+			setup: func(mock sqlmock.Sqlmock) {
+				mock.ExpectBegin()
+				mock.ExpectExec("INSERT INTO metrics").
+					WithArgs("Alloc", models.Gauge, floatVal).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+				mock.ExpectExec("INSERT INTO metrics").
+					WithArgs("PollCount", models.Counter, int64Val).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+				mock.ExpectCommit()
+			},
+			wantErr: false,
+		},
+		{
+			name:    "пустой батч",
+			metrics: []models.Metrics{},
+			setup: func(mock sqlmock.Sqlmock) {
+				mock.ExpectBegin()
+				mock.ExpectCommit()
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t)
+			tt.setup(mock)
+
+			err := repo.UpdateBatch(context.Background(), tt.metrics)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.NoError(t, mock.ExpectationsWereMet())
+			}
+		})
+	}
+}

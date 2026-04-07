@@ -248,3 +248,31 @@ func TestMetricsService_PingDB(t *testing.T) {
 		})
 	}
 }
+
+func TestMetricsService_UpdateBatch(t *testing.T) {
+	floatPtr := func(v float64) *float64 { return &v }
+	intPtr := func(v int64) *int64 { return &v }
+
+	t.Run("батч сохраняется", func(t *testing.T) {
+		repo := repository.NewMemStorage()
+		svc := NewMetricsService(repo, nil)
+
+		metrics := []models.Metrics{
+			{ID: "Alloc", MType: models.Gauge, Value: floatPtr(1.5)},
+			{ID: "PollCount", MType: models.Counter, Delta: intPtr(5)},
+		}
+
+		err := svc.UpdateBatch(context.Background(), metrics)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		m, err := svc.GetMetrica(context.Background(), models.Gauge, "Alloc")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if *m.Value != 1.5 {
+			t.Errorf("expected 1.5, got %v", *m.Value)
+		}
+	})
+}

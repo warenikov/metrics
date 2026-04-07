@@ -25,6 +25,7 @@ type Repository interface {
 	UpdateCounter(ctx context.Context, m models.Metrics) (models.Metrics, error)
 	GetMetrica(ctx context.Context, m models.Metrics) (*models.Metrics, error)
 	GetListMetrics(ctx context.Context) ([]models.Metrics, error)
+	UpdateBatch(ctx context.Context, metrics []models.Metrics) error
 }
 
 type DB interface {
@@ -92,6 +93,10 @@ func (s *MetricsService) ParseAndSave(ctx context.Context, mType, id, value stri
 	default:
 		return metric, ErrTypeMetric
 	}
+}
+
+func (s *MetricsService) UpdateBatch(ctx context.Context, metrics []models.Metrics) error {
+	return s.repo.UpdateBatch(ctx, metrics)
 }
 
 func (s *MetricsService) PingDB() error {

@@ -84,7 +84,7 @@ func (m *MetricaAgent) Run() {
 		_ = m.Poll()
 		timePassed += m.pollInterval
 		if timePassed >= m.sendInterval {
-			m.Send()
+			m.SendBatch()
 			m.counters.PollCount = 0 //обнуляем каунтер после отправки
 			timePassed = 0
 		}
@@ -95,7 +95,7 @@ func (m *MetricaAgent) Run() {
 func (m *MetricaAgent) Poll() error {
 	runtime.ReadMemStats(m.ms)
 	logger.Log.Debug("Poll metrics")
-	m.collectMerticsReflection()
+	m.collectMerticsManual()
 
 	return nil
 }
@@ -189,6 +189,100 @@ func (m *MetricaAgent) Send() {
 	m.sendCounter("PollCount", m.counters.PollCount)
 
 	logger.Log.Debug("Send metrics")
+}
+
+func (m *MetricaAgent) collectBatch() []models.Metrics {
+	g := m.gauges
+	gaugeVal := func(name string, v float64) models.Metrics {
+		val := v
+		return models.Metrics{ID: name, MType: models.Gauge, Value: &val}
+	}
+	batch := []models.Metrics{
+		gaugeVal("Alloc", g.Alloc),
+		gaugeVal("BuckHashSys", g.BuckHashSys),
+		gaugeVal("Frees", g.Frees),
+		gaugeVal("GCCPUFraction", g.GCCPUFraction),
+		gaugeVal("GCSys", g.GCSys),
+		gaugeVal("HeapAlloc", g.HeapAlloc),
+		gaugeVal("HeapIdle", g.HeapIdle),
+		gaugeVal("HeapInuse", g.HeapInuse),
+		gaugeVal("HeapObjects", g.HeapObjects),
+		gaugeVal("HeapReleased", g.HeapReleased),
+		gaugeVal("HeapSys", g.HeapSys),
+		gaugeVal("LastGC", g.LastGC),
+		gaugeVal("Lookups", g.Lookups),
+		gaugeVal("MCacheInuse", g.MCacheInuse),
+		gaugeVal("MCacheSys", g.MCacheSys),
+		gaugeVal("MSpanInuse", g.MSpanInuse),
+		gaugeVal("MSpanSys", g.MSpanSys),
+		gaugeVal("Mallocs", g.Mallocs),
+		gaugeVal("NextGC", g.NextGC),
+		gaugeVal("NumForcedGC", g.NumForcedGC),
+		gaugeVal("NumGC", g.NumGC),
+		gaugeVal("OtherSys", g.OtherSys),
+		gaugeVal("PauseTotalNs", g.PauseTotalNs),
+		gaugeVal("StackInuse", g.StackInuse),
+		gaugeVal("StackSys", g.StackSys),
+		gaugeVal("Sys", g.Sys),
+		gaugeVal("TotalAlloc", g.TotalAlloc),
+		gaugeVal("RandomValue", g.RandomValue),
+	}
+	delta := m.counters.PollCount
+	batch = append(batch, models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &delta})
+	return batch
+}
+
+func (m *MetricaAgent) SendBatch() {
+	batch := m.collectBatch()
+	data, err := json.Marshal(batch)
+	if err != nil {
+		logger.Log.Error("failed to marshal batch", zap.Error(err))
+		return
+	}
+	m.postBatchRequest(data)
+	logger.Log.Debug("SendBatch metrics")
+}
+
+func (m *MetricaAgent) postBatchRequest(data []byte) {
+	compressedData, err := compress.Compress(data)
+	if err != nil {
+		logger.Log.Error("failed to compress batch data", zap.Error(err))
+		return
+	}
+
+	req, err := http.NewRequest("POST", m.serverAddr+"/updates/", compressedData)
+	if err != nil {
+		logger.Log.Error("failed to create batch request", zap.Error(err))
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Log.Error("failed to send batch request", zap.Error(err))
+		return
+	}
+	defer resp.Body.Close()
+
+	reader := resp.Body
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gz, err := compress.NewReader(resp.Body)
+		if err != nil {
+			logger.Log.Error("failed to create gzip reader for batch response", zap.Error(err))
+			return
+		}
+		defer gz.Close()
+		reader = gz
+	}
+
+	_, err = io.ReadAll(reader)
+	if err != nil {
+		logger.Log.Error("failed to read batch response body", zap.Error(err))
+	}
 }
 
 // sendGauge Вспомогательный метод для отправки Gauge

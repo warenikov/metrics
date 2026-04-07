@@ -97,6 +97,45 @@ func (r *PostgresRepo) UpdateCounter(ctx context.Context, m models.Metrics) (mod
 	return result, nil
 }
 
+func (r *PostgresRepo) UpdateBatch(ctx context.Context, metrics []models.Metrics) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	gaugeQ := `
+		INSERT INTO metrics (id, mtype, value, delta)
+		VALUES ($1, $2, $3, NULL)
+		ON CONFLICT (id, mtype) DO UPDATE SET value = excluded.value`
+
+	counterQ := `
+		INSERT INTO metrics (id, mtype, delta, value)
+		VALUES ($1, $2, $3, NULL)
+		ON CONFLICT (id, mtype) DO UPDATE
+		SET delta = COALESCE(metrics.delta, 0) + excluded.delta`
+
+	for _, m := range metrics {
+		switch m.MType {
+		case models.Gauge:
+			if m.Value == nil {
+				return ErrInvalidValue
+			}
+			_, err = tx.ExecContext(ctx, gaugeQ, m.ID, m.MType, *m.Value)
+		case models.Counter:
+			if m.Delta == nil {
+				return ErrInvalidValue
+			}
+			_, err = tx.ExecContext(ctx, counterQ, m.ID, m.MType, *m.Delta)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to exec batch item: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
 func (r *PostgresRepo) GetMetrica(ctx context.Context, m models.Metrics) (*models.Metrics, error) {
 	if m.ID == "" || m.MType == "" {
 		return nil, ErrInvalidValue

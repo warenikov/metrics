@@ -37,6 +37,7 @@ type Service interface {
 	ParseAndSave(ctx context.Context, mType, id, value string) (models.Metrics, error)
 	GetMetrica(ctx context.Context, mType, id string) (*models.Metrics, error)
 	GetListMetrics(ctx context.Context) ([]models.Metrics, error)
+	UpdateBatch(ctx context.Context, metrics []models.Metrics) error
 	PingDB() error
 }
 
@@ -215,6 +216,26 @@ func (h *Handler) GetMetrica(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(result))
+}
+
+func (h *Handler) UpdateBatch(w http.ResponseWriter, r *http.Request) {
+	var metrics []models.Metrics
+	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if len(metrics) == 0 {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if err := h.svc.UpdateBatch(r.Context(), metrics); err != nil {
+		h.errorProcess(err, w)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *Handler) PingDB(w http.ResponseWriter, r *http.Request) {

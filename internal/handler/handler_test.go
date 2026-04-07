@@ -33,6 +33,9 @@ func (m *mockService) GetMetrica(_ context.Context, mType, id string) (*models.M
 func (m *mockService) GetListMetrics(_ context.Context) ([]models.Metrics, error) {
 	return nil, nil
 }
+func (m *mockService) UpdateBatch(_ context.Context, metrics []models.Metrics) error {
+	return nil
+}
 
 func TestHandler_Update(t *testing.T) {
 	repo := repository.NewMemStorage()
@@ -362,6 +365,58 @@ func TestHandler_GetMetricsList(t *testing.T) {
 			for _, s := range tt.expectInBody {
 				assert.Contains(t, w.Body.String(), s)
 			}
+		})
+	}
+}
+
+func TestHandler_UpdateBatch(t *testing.T) {
+	float64Ptr := func(v float64) *float64 { return &v }
+	int64Ptr := func(v int64) *int64 { return &v }
+
+	tests := []struct {
+		name           string
+		body           string
+		expectedStatus int
+	}{
+		{
+			name: "валидный батч",
+			body: func() string {
+				batch := []models.Metrics{
+					{ID: "Alloc", MType: models.Gauge, Value: float64Ptr(1.5)},
+					{ID: "PollCount", MType: models.Counter, Delta: int64Ptr(3)},
+				}
+				b, _ := json.Marshal(batch)
+				return string(b)
+			}(),
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "пустой батч",
+			body:           "[]",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "невалидный JSON",
+			body:           "not-json",
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := repository.NewMemStorage()
+			svc := service.NewMetricsService(repo, nil)
+			h := NewHandler(svc)
+
+			r := chi.NewRouter()
+			r.Post("/updates/", h.UpdateBatch)
+
+			req := httptest.NewRequest(http.MethodPost, "/updates/", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
 		})
 	}
 }

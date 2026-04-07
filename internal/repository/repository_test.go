@@ -6,6 +6,9 @@ import (
 	"metrics/internal/model"
 	"metrics/internal/service"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMemStorage_UpdateGauges_Table(t *testing.T) {
@@ -290,5 +293,51 @@ func TestMetricsService_GetListMetrics_Integration(t *testing.T) {
 		if *res[0].Delta != 15 {
 			t.Errorf("expected delta 15, got %d", *res[0].Delta)
 		}
+	})
+}
+
+func TestMemStorage_UpdateBatch(t *testing.T) {
+	floatPtr := func(v float64) *float64 { return &v }
+	intPtr := func(v int64) *int64 { return &v }
+
+	t.Run("несколько gauge обновляется", func(t *testing.T) {
+		s := NewMemStorage()
+		metrics := []models.Metrics{
+			{ID: "g1", MType: models.Gauge, Value: floatPtr(1.0)},
+			{ID: "g2", MType: models.Gauge, Value: floatPtr(2.0)},
+		}
+		err := s.UpdateBatch(context.Background(), metrics)
+		require.NoError(t, err)
+
+		m, err := s.GetMetrica(context.Background(), models.Metrics{ID: "g1", MType: models.Gauge})
+		require.NoError(t, err)
+		assert.Equal(t, 1.0, *m.Value)
+	})
+
+	t.Run("counter накапливается", func(t *testing.T) {
+		s := NewMemStorage()
+		_ = s.UpdateBatch(context.Background(), []models.Metrics{
+			{ID: "c1", MType: models.Counter, Delta: intPtr(5)},
+		})
+		_ = s.UpdateBatch(context.Background(), []models.Metrics{
+			{ID: "c1", MType: models.Counter, Delta: intPtr(3)},
+		})
+		m, err := s.GetMetrica(context.Background(), models.Metrics{ID: "c1", MType: models.Counter})
+		require.NoError(t, err)
+		assert.Equal(t, int64(8), *m.Delta)
+	})
+
+	t.Run("смешанный батч", func(t *testing.T) {
+		s := NewMemStorage()
+		metrics := []models.Metrics{
+			{ID: "Alloc", MType: models.Gauge, Value: floatPtr(42.0)},
+			{ID: "PollCount", MType: models.Counter, Delta: intPtr(10)},
+		}
+		err := s.UpdateBatch(context.Background(), metrics)
+		require.NoError(t, err)
+
+		list, err := s.GetListMetrics(context.Background())
+		require.NoError(t, err)
+		assert.Len(t, list, 2)
 	})
 }

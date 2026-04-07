@@ -71,6 +71,16 @@ func (r *FileBackedRepo) UpdateCounter(ctx context.Context, m models.Metrics) (m
 	return result, nil
 }
 
+func (r *FileBackedRepo) UpdateBatch(ctx context.Context, metrics []models.Metrics) error {
+	if err := r.mem.UpdateBatch(ctx, metrics); err != nil {
+		return err
+	}
+	if r.SyncDumpToFile {
+		return r.saveToFile()
+	}
+	return nil
+}
+
 func (r *FileBackedRepo) GetMetrica(ctx context.Context, m models.Metrics) (*models.Metrics, error) {
 	return r.mem.GetMetrica(ctx, m)
 }
