@@ -73,23 +73,30 @@ func (r *PostgresRepo) UpdateGauges(ctx context.Context, m models.Metrics) (mode
 	`
 
 	var result models.Metrics
-	err := r.db.QueryRowContext(ctx, query, m.ID, m.MType, *m.Value).Scan(
-		&result.ID, &result.MType, &result.Value, &result.Delta,
-	)
-	for _, d := range retryDelays {
-		if err == nil || !isRetryablePGError(err) {
-			break
-		}
-		time.Sleep(d)
-		err = r.db.QueryRowContext(ctx, query, m.ID, m.MType, *m.Value).Scan(
+
+	err := r.withRetry(func() error {
+		return r.db.QueryRowContext(ctx, query, m.ID, m.MType, *m.Value).Scan(
 			&result.ID, &result.MType, &result.Value, &result.Delta,
 		)
-	}
+	})
+
 	if err != nil {
 		return m, fmt.Errorf("failed to update gauge: %w", err)
 	}
 
 	return result, nil
+}
+
+func (r *PostgresRepo) withRetry(fn func() error) error {
+	err := fn()
+	for _, d := range retryDelays {
+		if err == nil || !isRetryablePGError(err) {
+			break
+		}
+		time.Sleep(d)
+		err = fn()
+	}
+	return err
 }
 
 func (r *PostgresRepo) UpdateCounter(ctx context.Context, m models.Metrics) (models.Metrics, error) {
@@ -106,18 +113,13 @@ func (r *PostgresRepo) UpdateCounter(ctx context.Context, m models.Metrics) (mod
 	`
 
 	var result models.Metrics
-	err := r.db.QueryRowContext(ctx, query, m.ID, m.MType, *m.Delta).Scan(
-		&result.ID, &result.MType, &result.Value, &result.Delta,
-	)
-	for _, d := range retryDelays {
-		if err == nil || !isRetryablePGError(err) {
-			break
-		}
-		time.Sleep(d)
-		err = r.db.QueryRowContext(ctx, query, m.ID, m.MType, *m.Delta).Scan(
+
+	err := r.withRetry(func() error {
+		return r.db.QueryRowContext(ctx, query, m.ID, m.MType, *m.Delta).Scan(
 			&result.ID, &result.MType, &result.Value, &result.Delta,
 		)
-	}
+	})
+
 	if err != nil {
 		return m, fmt.Errorf("failed to update counter: %w", err)
 	}
@@ -126,14 +128,9 @@ func (r *PostgresRepo) UpdateCounter(ctx context.Context, m models.Metrics) (mod
 }
 
 func (r *PostgresRepo) UpdateBatch(ctx context.Context, metrics []models.Metrics) error {
-	err := r.updateBatchTx(ctx, metrics)
-	for _, d := range retryDelays {
-		if err == nil || !isRetryablePGError(err) {
-			break
-		}
-		time.Sleep(d)
-		err = r.updateBatchTx(ctx, metrics)
-	}
+	err := r.withRetry(func() error {
+		return r.updateBatchTx(ctx, metrics)
+	})
 	return err
 }
 
@@ -184,18 +181,13 @@ func (r *PostgresRepo) GetMetrica(ctx context.Context, m models.Metrics) (*model
 	query := `SELECT id, mtype, value, delta FROM metrics WHERE id = $1 AND mtype = $2`
 
 	var result models.Metrics
-	err := r.db.QueryRowContext(ctx, query, m.ID, m.MType).Scan(
-		&result.ID, &result.MType, &result.Value, &result.Delta,
-	)
-	for _, d := range retryDelays {
-		if err == nil || !isRetryablePGError(err) {
-			break
-		}
-		time.Sleep(d)
-		err = r.db.QueryRowContext(ctx, query, m.ID, m.MType).Scan(
+
+	err := r.withRetry(func() error {
+		return r.db.QueryRowContext(ctx, query, m.ID, m.MType).Scan(
 			&result.ID, &result.MType, &result.Value, &result.Delta,
 		)
-	}
+	})
+
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrPGNotFound

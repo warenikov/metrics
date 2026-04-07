@@ -34,9 +34,9 @@ func main() {
 		pgxDB    *db.PgxDB
 	)
 
-	if cfg.DBDNS != "" {
+	if cfg.DBDSN != "" {
 		var dbErr error
-		pgxDB, dbErr = db.Connect(cfg.DBDNS)
+		pgxDB, dbErr = db.Connect(cfg.DBDSN)
 		if dbErr != nil {
 			logger.Log.Fatal("Failed to connect to database", zap.Error(dbErr))
 		}
