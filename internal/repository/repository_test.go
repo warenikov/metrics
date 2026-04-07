@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 	"metrics/internal/model"
 	"metrics/internal/service"
@@ -41,12 +42,12 @@ func TestMemStorage_UpdateGauges_Table(t *testing.T) {
 				s.metrics = tt.initialState
 			}
 
-			_, err := s.UpdateGauges(tt.input)
+			_, err := s.UpdateGauges(context.Background(), tt.input)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			saved, err := s.GetMetrica(tt.input)
+			saved, err := s.GetMetrica(context.Background(), tt.input)
 			if err != nil {
 				t.Fatalf("could not find metric after update: %v", err)
 			}
@@ -101,14 +102,14 @@ func TestMemStorage_UpdateCounter_Table(t *testing.T) {
 				s.metrics = tt.initialState
 			}
 
-			_, err := s.UpdateCounter(tt.input)
+			_, err := s.UpdateCounter(context.Background(), tt.input)
 
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("UpdateCounter() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			if !tt.wantErr {
-				saved, _ := s.GetMetrica(tt.input)
+				saved, _ := s.GetMetrica(context.Background(), tt.input)
 				if *saved.Delta != tt.expectedDelta {
 					t.Errorf("got delta %d, want %d", *saved.Delta, tt.expectedDelta)
 				}
@@ -154,7 +155,7 @@ func TestMemStorage_GetMetrica_Table(t *testing.T) {
 			}
 
 			// 1. Вызываем метод
-			res, err := s.GetMetrica(tt.input)
+			res, err := s.GetMetrica(context.Background(), tt.input)
 
 			// 2. Проверяем ошибку через errors.Is или прямое сравнение
 			if !errors.Is(err, tt.wantErr) {
@@ -202,7 +203,7 @@ func TestMemStorage_GetListMetrics_Table(t *testing.T) {
 			}
 
 			// 1. Вызываем метод
-			res, err := s.GetListMetrics()
+			res, err := s.GetListMetrics(context.Background())
 
 			// 2. Проверяем на ошибки (в текущей реализации их быть не может, но для порядка)
 			if err != nil {
@@ -229,7 +230,7 @@ func TestMetricsService_GetListMetrics_Integration(t *testing.T) {
 		repo := NewMemStorage()
 		srv := service.NewMetricsService(repo, nil)
 
-		res, err := srv.GetListMetrics()
+		res, err := srv.GetListMetrics(context.Background())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -243,12 +244,12 @@ func TestMetricsService_GetListMetrics_Integration(t *testing.T) {
 		srv := service.NewMetricsService(repo, nil)
 
 		// 1. Сохраняем разные типы метрик
-		_, _ = srv.ParseAndSave(models.Gauge, "g1", "1.1")
-		_, _ = srv.ParseAndSave(models.Counter, "c1", "10")
-		_, _ = srv.ParseAndSave(models.Gauge, "g2", "2.2")
+		_, _ = srv.ParseAndSave(context.Background(), models.Gauge, "g1", "1.1")
+		_, _ = srv.ParseAndSave(context.Background(), models.Counter, "c1", "10")
+		_, _ = srv.ParseAndSave(context.Background(), models.Gauge, "g2", "2.2")
 
 		// 2. Получаем список
-		res, err := srv.GetListMetrics()
+		res, err := srv.GetListMetrics(context.Background())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -277,10 +278,10 @@ func TestMetricsService_GetListMetrics_Integration(t *testing.T) {
 		srv := service.NewMetricsService(repo, nil)
 
 		// Инкрементируем один и тот же счетчик дважды
-		_, _ = srv.ParseAndSave(models.Counter, "c1", "10")
-		_, _ = srv.ParseAndSave(models.Counter, "c1", "5")
+		_, _ = srv.ParseAndSave(context.Background(), models.Counter, "c1", "10")
+		_, _ = srv.ParseAndSave(context.Background(), models.Counter, "c1", "5")
 
-		res, _ := srv.GetListMetrics()
+		res, _ := srv.GetListMetrics(context.Background())
 
 		if len(res) != 1 {
 			t.Fatalf("expected 1 metric, got %d", len(res))

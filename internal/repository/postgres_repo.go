@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -48,7 +49,7 @@ func runMigrations(db *sql.DB, migrations fs.FS) error {
 	return nil
 }
 
-func (r *PostgresRepo) UpdateGauges(m models.Metrics) (models.Metrics, error) {
+func (r *PostgresRepo) UpdateGauges(ctx context.Context, m models.Metrics) (models.Metrics, error) {
 	if m.ID == "" || m.MType == "" || m.Value == nil {
 		return m, ErrInvalidValue
 	}
@@ -62,18 +63,17 @@ func (r *PostgresRepo) UpdateGauges(m models.Metrics) (models.Metrics, error) {
 	`
 
 	var result models.Metrics
-	err := r.db.QueryRow(query, m.ID, m.MType, *m.Value).Scan(
+	err := r.db.QueryRowContext(ctx, query, m.ID, m.MType, *m.Value).Scan(
 		&result.ID, &result.MType, &result.Value, &result.Delta,
 	)
 	if err != nil {
 		return m, fmt.Errorf("failed to update gauge: %w", err)
 	}
 
-	result.MType = m.MType
 	return result, nil
 }
 
-func (r *PostgresRepo) UpdateCounter(m models.Metrics) (models.Metrics, error) {
+func (r *PostgresRepo) UpdateCounter(ctx context.Context, m models.Metrics) (models.Metrics, error) {
 	if m.ID == "" || m.MType == "" || m.Delta == nil {
 		return m, ErrInvalidValue
 	}
@@ -87,18 +87,17 @@ func (r *PostgresRepo) UpdateCounter(m models.Metrics) (models.Metrics, error) {
 	`
 
 	var result models.Metrics
-	err := r.db.QueryRow(query, m.ID, m.MType, *m.Delta).Scan(
+	err := r.db.QueryRowContext(ctx, query, m.ID, m.MType, *m.Delta).Scan(
 		&result.ID, &result.MType, &result.Value, &result.Delta,
 	)
 	if err != nil {
 		return m, fmt.Errorf("failed to update counter: %w", err)
 	}
 
-	result.MType = m.MType
 	return result, nil
 }
 
-func (r *PostgresRepo) GetMetrica(m models.Metrics) (*models.Metrics, error) {
+func (r *PostgresRepo) GetMetrica(ctx context.Context, m models.Metrics) (*models.Metrics, error) {
 	if m.ID == "" || m.MType == "" {
 		return nil, ErrInvalidValue
 	}
@@ -106,7 +105,7 @@ func (r *PostgresRepo) GetMetrica(m models.Metrics) (*models.Metrics, error) {
 	query := `SELECT id, mtype, value, delta FROM metrics WHERE id = $1 AND mtype = $2`
 
 	var result models.Metrics
-	err := r.db.QueryRow(query, m.ID, m.MType).Scan(
+	err := r.db.QueryRowContext(ctx, query, m.ID, m.MType).Scan(
 		&result.ID, &result.MType, &result.Value, &result.Delta,
 	)
 	if err != nil {
@@ -119,10 +118,10 @@ func (r *PostgresRepo) GetMetrica(m models.Metrics) (*models.Metrics, error) {
 	return &result, nil
 }
 
-func (r *PostgresRepo) GetListMetrics() ([]models.Metrics, error) {
+func (r *PostgresRepo) GetListMetrics(ctx context.Context) ([]models.Metrics, error) {
 	query := `SELECT id, mtype, value, delta FROM metrics ORDER BY id, mtype`
 
-	rows, err := r.db.Query(query)
+	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics: %w", err)
 	}

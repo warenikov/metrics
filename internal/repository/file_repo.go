@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"metrics/internal/logger"
@@ -44,8 +45,8 @@ func NewFileBackedRepo(mem *MemStorage, filePath string, intervalSec uint, resto
 	return repo, nil
 }
 
-func (r *FileBackedRepo) UpdateGauges(m models.Metrics) (models.Metrics, error) {
-	result, err := r.mem.UpdateGauges(m)
+func (r *FileBackedRepo) UpdateGauges(ctx context.Context, m models.Metrics) (models.Metrics, error) {
+	result, err := r.mem.UpdateGauges(ctx, m)
 	if err != nil {
 		return result, err
 	}
@@ -57,8 +58,8 @@ func (r *FileBackedRepo) UpdateGauges(m models.Metrics) (models.Metrics, error) 
 	return result, nil
 }
 
-func (r *FileBackedRepo) UpdateCounter(m models.Metrics) (models.Metrics, error) {
-	result, err := r.mem.UpdateCounter(m)
+func (r *FileBackedRepo) UpdateCounter(ctx context.Context, m models.Metrics) (models.Metrics, error) {
+	result, err := r.mem.UpdateCounter(ctx, m)
 	if err != nil {
 		return result, err
 	}
@@ -70,12 +71,12 @@ func (r *FileBackedRepo) UpdateCounter(m models.Metrics) (models.Metrics, error)
 	return result, nil
 }
 
-func (r *FileBackedRepo) GetMetrica(m models.Metrics) (*models.Metrics, error) {
-	return r.mem.GetMetrica(m)
+func (r *FileBackedRepo) GetMetrica(ctx context.Context, m models.Metrics) (*models.Metrics, error) {
+	return r.mem.GetMetrica(ctx, m)
 }
 
-func (r *FileBackedRepo) GetListMetrics() ([]models.Metrics, error) {
-	return r.mem.GetListMetrics()
+func (r *FileBackedRepo) GetListMetrics(ctx context.Context) ([]models.Metrics, error) {
+	return r.mem.GetListMetrics(ctx)
 }
 
 func (r *FileBackedRepo) load() error {
@@ -99,12 +100,12 @@ func (r *FileBackedRepo) load() error {
 	for _, m := range metrics {
 		switch m.MType {
 		case models.Gauge:
-			_, e := r.mem.UpdateGauges(m)
+			_, e := r.mem.UpdateGauges(context.Background(), m)
 			if e != nil {
 				return e
 			}
 		case models.Counter:
-			_, e := r.mem.UpdateCounter(m)
+			_, e := r.mem.UpdateCounter(context.Background(), m)
 			if e != nil {
 				return e
 			}
@@ -129,7 +130,7 @@ func (r *FileBackedRepo) Save() error {
 }
 
 func (r *FileBackedRepo) saveToFile() error {
-	metrics, err := r.mem.GetListMetrics()
+	metrics, err := r.mem.GetListMetrics(context.Background())
 	if err != nil {
 		return err
 	}

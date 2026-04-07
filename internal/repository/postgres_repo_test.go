@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
@@ -62,7 +63,7 @@ func TestPostgresRepo_UpdateGauges(t *testing.T) {
 					WillReturnRows(rows)
 			}
 
-			result, err := repo.UpdateGauges(tt.input)
+			result, err := repo.UpdateGauges(context.Background(), tt.input)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -121,7 +122,7 @@ func TestPostgresRepo_UpdateCounter(t *testing.T) {
 					WillReturnRows(rows)
 			}
 
-			result, err := repo.UpdateCounter(tt.input)
+			result, err := repo.UpdateCounter(context.Background(), tt.input)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -185,7 +186,7 @@ func TestPostgresRepo_GetMetrica(t *testing.T) {
 				tt.rowFunc(mock, tt.input)
 			}
 
-			result, err := repo.GetMetrica(tt.input)
+			result, err := repo.GetMetrica(context.Background(), tt.input)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -233,7 +234,7 @@ func TestPostgresRepo_GetListMetrics(t *testing.T) {
 			mock.ExpectQuery("SELECT id, mtype, value, delta FROM metrics").
 				WillReturnRows(tt.rows)
 
-			result, err := repo.GetListMetrics()
+			result, err := repo.GetListMetrics(context.Background())
 
 			if tt.wantErr {
 				assert.Error(t, err)

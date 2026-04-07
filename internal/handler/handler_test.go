@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"metrics/internal/repository"
@@ -23,11 +24,15 @@ type mockService struct {
 }
 
 func (m *mockService) PingDB() error { return m.pingErr }
-func (m *mockService) ParseAndSave(mType, id, value string) (models.Metrics, error) {
+func (m *mockService) ParseAndSave(_ context.Context, mType, id, value string) (models.Metrics, error) {
 	return models.Metrics{}, nil
 }
-func (m *mockService) GetMetrica(mType, id string) (*models.Metrics, error) { return nil, nil }
-func (m *mockService) GetListMetrics() ([]models.Metrics, error)            { return nil, nil }
+func (m *mockService) GetMetrica(_ context.Context, mType, id string) (*models.Metrics, error) {
+	return nil, nil
+}
+func (m *mockService) GetListMetrics(_ context.Context) ([]models.Metrics, error) {
+	return nil, nil
+}
 
 func TestHandler_Update(t *testing.T) {
 	repo := repository.NewMemStorage()
@@ -126,9 +131,9 @@ func TestHandler_GetMetrica(t *testing.T) {
 
 	var valCounter int64 = 10 // Явно указываем int64
 	var valGauge = 10.5       // Явно указываем int64
-	repo.UpdateGauges(models.Metrics{ID: "TestGauge", MType: models.Gauge, Value: &valGauge})
-	repo.UpdateCounter(models.Metrics{ID: "TestName", MType: models.Counter, Delta: &valCounter})
-	repo.UpdateCounter(models.Metrics{ID: "TestCounter", MType: models.Counter, Delta: &valCounter})
+	repo.UpdateGauges(context.Background(), models.Metrics{ID: "TestGauge", MType: models.Gauge, Value: &valGauge})
+	repo.UpdateCounter(context.Background(), models.Metrics{ID: "TestName", MType: models.Counter, Delta: &valCounter})
+	repo.UpdateCounter(context.Background(), models.Metrics{ID: "TestCounter", MType: models.Counter, Delta: &valCounter})
 
 	tests := []struct {
 		name           string
@@ -248,8 +253,8 @@ func TestHandler_GetMetricaJSON(t *testing.T) {
 	// Предзаполняем хранилище
 	gaugeVal := 100.5
 	var counterVal int64 = 5
-	repo.UpdateGauges(models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &gaugeVal})
-	repo.UpdateCounter(models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &counterVal})
+	repo.UpdateGauges(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &gaugeVal})
+	repo.UpdateCounter(context.Background(), models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &counterVal})
 
 	r := chi.NewRouter()
 	r.Post("/value/", h.GetMetricaJSON)
@@ -330,8 +335,8 @@ func TestHandler_GetMetricsList(t *testing.T) {
 			setup: func(repo *repository.MemStorage) {
 				v := 42.0
 				var d int64 = 7
-				repo.UpdateGauges(models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &v})
-				repo.UpdateCounter(models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &d})
+				repo.UpdateGauges(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &v})
+				repo.UpdateCounter(context.Background(), models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &d})
 			},
 			expectInBody: []string{"Alloc", "PollCount"},
 		},

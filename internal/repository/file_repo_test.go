@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"encoding/json"
 	models "metrics/internal/model"
 	"os"
@@ -95,13 +96,13 @@ func TestFileBackedRepo_Load(t *testing.T) {
 			}
 			defer repo.Close()
 
-			list, _ := mem.GetListMetrics()
+			list, _ := mem.GetListMetrics(context.Background())
 			if len(list) != len(tt.wantMetrics) {
 				t.Fatalf("got %d metrics, want %d", len(list), len(tt.wantMetrics))
 			}
 
 			for _, want := range tt.wantMetrics {
-				got, err := mem.GetMetrica(want)
+				got, err := mem.GetMetrica(context.Background(), want)
 				if err != nil {
 					t.Errorf("metric %s not found after Load", want.ID)
 					continue
@@ -229,9 +230,9 @@ func TestFileBackedRepo_ImmediateSave(t *testing.T) {
 
 			switch tt.metric.MType {
 			case models.Gauge:
-				repo.UpdateGauges(tt.metric)
+				repo.UpdateGauges(context.Background(), tt.metric)
 			case models.Counter:
-				repo.UpdateCounter(tt.metric)
+				repo.UpdateCounter(context.Background(), tt.metric)
 			}
 
 			info, err := os.Stat(fp)
