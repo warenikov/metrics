@@ -10,6 +10,7 @@ import (
 	"metrics/internal/logger"
 	models "metrics/internal/model"
 	"metrics/pkg/compress"
+	"net"
 	"net/http"
 	"reflect"
 	"runtime"
@@ -21,6 +22,13 @@ import (
 var (
 	ErrSendMetrica = errors.New("failed to send metrica")
 )
+
+var agentRetryDelays = []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
+
+func isRetryableNetworkError(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr)
+}
 
 type GaugeMertics struct {
 	Alloc         float64 `json:"alloc"`
@@ -244,44 +252,51 @@ func (m *MetricaAgent) SendBatch() {
 }
 
 func (m *MetricaAgent) postBatchRequest(data []byte) {
-	compressedData, err := compress.Compress(data)
-	if err != nil {
-		logger.Log.Error("failed to compress batch data", zap.Error(err))
-		return
-	}
-
-	req, err := http.NewRequest("POST", m.serverAddr+"/updates/", compressedData)
-	if err != nil {
-		logger.Log.Error("failed to create batch request", zap.Error(err))
-		return
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Content-Encoding", "gzip")
-	req.Header.Set("Accept-Encoding", "gzip")
-
+	var lastErr error
 	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		logger.Log.Error("failed to send batch request", zap.Error(err))
-		return
-	}
-	defer resp.Body.Close()
 
-	reader := resp.Body
-	if resp.Header.Get("Content-Encoding") == "gzip" {
-		gz, err := compress.NewReader(resp.Body)
+	doRequest := func() error {
+		compressedData, err := compress.Compress(data)
 		if err != nil {
-			logger.Log.Error("failed to create gzip reader for batch response", zap.Error(err))
-			return
+			return err
 		}
-		defer gz.Close()
-		reader = gz
+		req, err := http.NewRequest("POST", m.serverAddr+"/updates/", compressedData)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Encoding", "gzip")
+		req.Header.Set("Accept-Encoding", "gzip")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		reader := io.Reader(resp.Body)
+		if resp.Header.Get("Content-Encoding") == "gzip" {
+			gz, err := compress.NewReader(resp.Body)
+			if err != nil {
+				return err
+			}
+			defer gz.Close()
+			reader = gz
+		}
+		_, err = io.ReadAll(reader)
+		return err
 	}
 
-	_, err = io.ReadAll(reader)
-	if err != nil {
-		logger.Log.Error("failed to read batch response body", zap.Error(err))
+	lastErr = doRequest()
+	for _, d := range agentRetryDelays {
+		if lastErr == nil || !isRetryableNetworkError(lastErr) {
+			break
+		}
+		time.Sleep(d)
+		lastErr = doRequest()
+	}
+	if lastErr != nil {
+		logger.Log.Error("failed to send batch", zap.Error(lastErr))
 	}
 }
 
@@ -306,49 +321,53 @@ func (m *MetricaAgent) sendCounter(name string, value int64) {
 }
 
 func (m *MetricaAgent) postRequest(data []byte, name string) {
-	compressedData, err := compress.Compress(data)
-	if err != nil {
-		logger.Log.Error("failed to compress data: %v", zap.Error(err))
-
-		return
-	}
-
-	req, err := http.NewRequest("POST", m.serverAddr+"/update/", compressedData)
-	if err != nil {
-		logger.Log.Error("failed to create request", zap.Error(err))
-		return
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Content-Encoding", "gzip")
-	req.Header.Set("Accept-Encoding", "gzip")
-
+	var lastErr error
 	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		logger.Log.Error("failed to create request",
-			zap.String("metrica name", name),
-			zap.Error(err),
-		)
-		return
-	}
-	defer resp.Body.Close()
 
-	var reader = resp.Body
-
-	if resp.Header.Get("Content-Encoding") == "gzip" {
-		gz, err := compress.NewReader(resp.Body)
+	doRequest := func() error {
+		compressedData, err := compress.Compress(data)
 		if err != nil {
-			logger.Log.Error("failed to create gzip reader for response", zap.Error(err))
-			return
+			return err
 		}
-		defer gz.Close()
-		reader = gz
+		req, err := http.NewRequest("POST", m.serverAddr+"/update/", compressedData)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Encoding", "gzip")
+		req.Header.Set("Accept-Encoding", "gzip")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		reader := io.Reader(resp.Body)
+		if resp.Header.Get("Content-Encoding") == "gzip" {
+			gz, err := compress.NewReader(resp.Body)
+			if err != nil {
+				return err
+			}
+			defer gz.Close()
+			reader = gz
+		}
+		_, err = io.ReadAll(reader)
+		return err
 	}
 
-	_, err = io.ReadAll(reader)
-	if err != nil {
-		logger.Log.Error("failed to read response body", zap.Error(err))
-		return
+	lastErr = doRequest()
+	for _, d := range agentRetryDelays {
+		if lastErr == nil || !isRetryableNetworkError(lastErr) {
+			break
+		}
+		time.Sleep(d)
+		lastErr = doRequest()
+	}
+	if lastErr != nil {
+		logger.Log.Error("failed to send metric",
+			zap.String("metrica name", name),
+			zap.Error(lastErr),
+		)
 	}
 }

@@ -7,13 +7,23 @@ import (
 	"fmt"
 	"io/fs"
 	models "metrics/internal/model"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	pgxmigrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var ErrPGNotFound = errors.New("metric not found in db")
+
+var retryDelays = []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
+
+func isRetryablePGError(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgerrcode.IsConnectionException(pgErr.Code)
+}
 
 type PostgresRepo struct {
 	db *sql.DB
@@ -66,6 +76,15 @@ func (r *PostgresRepo) UpdateGauges(ctx context.Context, m models.Metrics) (mode
 	err := r.db.QueryRowContext(ctx, query, m.ID, m.MType, *m.Value).Scan(
 		&result.ID, &result.MType, &result.Value, &result.Delta,
 	)
+	for _, d := range retryDelays {
+		if err == nil || !isRetryablePGError(err) {
+			break
+		}
+		time.Sleep(d)
+		err = r.db.QueryRowContext(ctx, query, m.ID, m.MType, *m.Value).Scan(
+			&result.ID, &result.MType, &result.Value, &result.Delta,
+		)
+	}
 	if err != nil {
 		return m, fmt.Errorf("failed to update gauge: %w", err)
 	}
@@ -90,6 +109,15 @@ func (r *PostgresRepo) UpdateCounter(ctx context.Context, m models.Metrics) (mod
 	err := r.db.QueryRowContext(ctx, query, m.ID, m.MType, *m.Delta).Scan(
 		&result.ID, &result.MType, &result.Value, &result.Delta,
 	)
+	for _, d := range retryDelays {
+		if err == nil || !isRetryablePGError(err) {
+			break
+		}
+		time.Sleep(d)
+		err = r.db.QueryRowContext(ctx, query, m.ID, m.MType, *m.Delta).Scan(
+			&result.ID, &result.MType, &result.Value, &result.Delta,
+		)
+	}
 	if err != nil {
 		return m, fmt.Errorf("failed to update counter: %w", err)
 	}
@@ -98,6 +126,18 @@ func (r *PostgresRepo) UpdateCounter(ctx context.Context, m models.Metrics) (mod
 }
 
 func (r *PostgresRepo) UpdateBatch(ctx context.Context, metrics []models.Metrics) error {
+	err := r.updateBatchTx(ctx, metrics)
+	for _, d := range retryDelays {
+		if err == nil || !isRetryablePGError(err) {
+			break
+		}
+		time.Sleep(d)
+		err = r.updateBatchTx(ctx, metrics)
+	}
+	return err
+}
+
+func (r *PostgresRepo) updateBatchTx(ctx context.Context, metrics []models.Metrics) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -147,6 +187,15 @@ func (r *PostgresRepo) GetMetrica(ctx context.Context, m models.Metrics) (*model
 	err := r.db.QueryRowContext(ctx, query, m.ID, m.MType).Scan(
 		&result.ID, &result.MType, &result.Value, &result.Delta,
 	)
+	for _, d := range retryDelays {
+		if err == nil || !isRetryablePGError(err) {
+			break
+		}
+		time.Sleep(d)
+		err = r.db.QueryRowContext(ctx, query, m.ID, m.MType).Scan(
+			&result.ID, &result.MType, &result.Value, &result.Delta,
+		)
+	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrPGNotFound
@@ -161,6 +210,13 @@ func (r *PostgresRepo) GetListMetrics(ctx context.Context) ([]models.Metrics, er
 	query := `SELECT id, mtype, value, delta FROM metrics ORDER BY id, mtype`
 
 	rows, err := r.db.QueryContext(ctx, query)
+	for _, d := range retryDelays {
+		if err == nil || !isRetryablePGError(err) {
+			break
+		}
+		time.Sleep(d)
+		rows, err = r.db.QueryContext(ctx, query)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics: %w", err)
 	}
