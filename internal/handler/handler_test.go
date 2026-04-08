@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"metrics/internal/repository"
 	"net/http"
 	"net/http/httptest"
@@ -16,9 +18,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// mockService реализует интерфейс Service для тестирования хендлера в изоляции.
+type mockService struct {
+	pingErr error
+}
+
+func (m *mockService) PingDB() error { return m.pingErr }
+func (m *mockService) ParseAndSave(_ context.Context, mType, id, value string) (models.Metrics, error) {
+	return models.Metrics{}, nil
+}
+func (m *mockService) GetMetrica(_ context.Context, mType, id string) (*models.Metrics, error) {
+	return nil, nil
+}
+func (m *mockService) GetListMetrics(_ context.Context) ([]models.Metrics, error) {
+	return nil, nil
+}
+func (m *mockService) UpdateBatch(_ context.Context, metrics []models.Metrics) error {
+	return nil
+}
+
 func TestHandler_Update(t *testing.T) {
 	repo := repository.NewMemStorage()
-	svc := service.NewMetricsService(repo)
+	svc := service.NewMetricsService(repo, nil)
 	h := NewHandler(svc)
 
 	// 2. Описываем сценарии
@@ -108,14 +129,14 @@ func TestHandler_Update(t *testing.T) {
 
 func TestHandler_GetMetrica(t *testing.T) {
 	repo := repository.NewMemStorage()
-	svc := service.NewMetricsService(repo)
+	svc := service.NewMetricsService(repo, nil)
 	h := NewHandler(svc)
 
 	var valCounter int64 = 10 // Явно указываем int64
 	var valGauge = 10.5       // Явно указываем int64
-	repo.UpdateGauges(models.Metrics{ID: "TestGauge", MType: models.Gauge, Value: &valGauge})
-	repo.UpdateCounter(models.Metrics{ID: "TestName", MType: models.Counter, Delta: &valCounter})
-	repo.UpdateCounter(models.Metrics{ID: "TestCounter", MType: models.Counter, Delta: &valCounter})
+	repo.UpdateGauges(context.Background(), models.Metrics{ID: "TestGauge", MType: models.Gauge, Value: &valGauge})
+	repo.UpdateCounter(context.Background(), models.Metrics{ID: "TestName", MType: models.Counter, Delta: &valCounter})
+	repo.UpdateCounter(context.Background(), models.Metrics{ID: "TestCounter", MType: models.Counter, Delta: &valCounter})
 
 	tests := []struct {
 		name           string
@@ -167,7 +188,7 @@ func TestHandler_GetMetrica(t *testing.T) {
 
 func TestHandler_UpdateJSON(t *testing.T) {
 	repo := repository.NewMemStorage()
-	svc := service.NewMetricsService(repo)
+	svc := service.NewMetricsService(repo, nil)
 	h := NewHandler(svc)
 
 	r := chi.NewRouter()
@@ -229,14 +250,14 @@ func TestHandler_UpdateJSON(t *testing.T) {
 
 func TestHandler_GetMetricaJSON(t *testing.T) {
 	repo := repository.NewMemStorage()
-	svc := service.NewMetricsService(repo)
+	svc := service.NewMetricsService(repo, nil)
 	h := NewHandler(svc)
 
 	// Предзаполняем хранилище
 	gaugeVal := 100.5
 	var counterVal int64 = 5
-	repo.UpdateGauges(models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &gaugeVal})
-	repo.UpdateCounter(models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &counterVal})
+	repo.UpdateGauges(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &gaugeVal})
+	repo.UpdateCounter(context.Background(), models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &counterVal})
 
 	r := chi.NewRouter()
 	r.Post("/value/", h.GetMetricaJSON)
@@ -317,8 +338,8 @@ func TestHandler_GetMetricsList(t *testing.T) {
 			setup: func(repo *repository.MemStorage) {
 				v := 42.0
 				var d int64 = 7
-				repo.UpdateGauges(models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &v})
-				repo.UpdateCounter(models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &d})
+				repo.UpdateGauges(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &v})
+				repo.UpdateCounter(context.Background(), models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &d})
 			},
 			expectInBody: []string{"Alloc", "PollCount"},
 		},
@@ -328,7 +349,7 @@ func TestHandler_GetMetricsList(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := repository.NewMemStorage()
 			tt.setup(repo)
-			svc := service.NewMetricsService(repo)
+			svc := service.NewMetricsService(repo, nil)
 			h := NewHandler(svc)
 
 			r := chi.NewRouter()
@@ -344,6 +365,93 @@ func TestHandler_GetMetricsList(t *testing.T) {
 			for _, s := range tt.expectInBody {
 				assert.Contains(t, w.Body.String(), s)
 			}
+		})
+	}
+}
+
+func TestHandler_UpdateBatch(t *testing.T) {
+	float64Ptr := func(v float64) *float64 { return &v }
+	int64Ptr := func(v int64) *int64 { return &v }
+
+	tests := []struct {
+		name           string
+		body           string
+		expectedStatus int
+	}{
+		{
+			name: "валидный батч",
+			body: func() string {
+				batch := []models.Metrics{
+					{ID: "Alloc", MType: models.Gauge, Value: float64Ptr(1.5)},
+					{ID: "PollCount", MType: models.Counter, Delta: int64Ptr(3)},
+				}
+				b, _ := json.Marshal(batch)
+				return string(b)
+			}(),
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "пустой батч",
+			body:           "[]",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "невалидный JSON",
+			body:           "not-json",
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := repository.NewMemStorage()
+			svc := service.NewMetricsService(repo, nil)
+			h := NewHandler(svc)
+
+			r := chi.NewRouter()
+			r.Post("/updates/", h.UpdateBatch)
+
+			req := httptest.NewRequest(http.MethodPost, "/updates/", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+		})
+	}
+}
+
+func TestHandler_PingDB(t *testing.T) {
+	tests := []struct {
+		name           string
+		pingErr        error
+		expectedStatus int
+	}{
+		{
+			name:           "БД доступна",
+			pingErr:        nil,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "БД недоступна",
+			pingErr:        errors.New("connection refused"),
+			expectedStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &mockService{pingErr: tt.pingErr}
+			h := NewHandler(svc)
+
+			r := chi.NewRouter()
+			r.Get("/ping", h.PingDB)
+
+			req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
 		})
 	}
 }

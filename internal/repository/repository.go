@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 	"metrics/internal/model"
 )
@@ -20,12 +21,12 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
-func (s *MemStorage) UpdateGauges(m models.Metrics) (models.Metrics, error) {
+func (s *MemStorage) UpdateGauges(_ context.Context, m models.Metrics) (models.Metrics, error) {
 	s.metrics[m.ID] = m
 	return m, nil
 }
 
-func (s *MemStorage) UpdateCounter(m models.Metrics) (models.Metrics, error) {
+func (s *MemStorage) UpdateCounter(_ context.Context, m models.Metrics) (models.Metrics, error) {
 	if m.Delta == nil {
 		return m, ErrInvalidValue
 	}
@@ -39,7 +40,7 @@ func (s *MemStorage) UpdateCounter(m models.Metrics) (models.Metrics, error) {
 	return m, nil
 }
 
-func (s *MemStorage) GetMetrica(m models.Metrics) (*models.Metrics, error) {
+func (s *MemStorage) GetMetrica(_ context.Context, m models.Metrics) (*models.Metrics, error) {
 	mm, ok := s.metrics[m.ID]
 	if !ok {
 		return nil, ErrMetricNotFound
@@ -47,7 +48,27 @@ func (s *MemStorage) GetMetrica(m models.Metrics) (*models.Metrics, error) {
 	return &mm, nil
 }
 
-func (s *MemStorage) GetListMetrics() ([]models.Metrics, error) {
+func (s *MemStorage) UpdateBatch(_ context.Context, metrics []models.Metrics) error {
+	for _, m := range metrics {
+		switch m.MType {
+		case models.Gauge:
+			s.metrics[m.ID] = m
+		case models.Counter:
+			if m.Delta == nil {
+				return ErrInvalidValue
+			}
+			newVal := *m.Delta
+			if old, ok := s.metrics[m.ID]; ok && old.Delta != nil {
+				newVal += *old.Delta
+			}
+			m.Delta = &newVal
+			s.metrics[m.ID] = m
+		}
+	}
+	return nil
+}
+
+func (s *MemStorage) GetListMetrics(_ context.Context) ([]models.Metrics, error) {
 	res := make([]models.Metrics, 0, len(s.metrics))
 	for _, m := range s.metrics {
 		res = append(res, m)

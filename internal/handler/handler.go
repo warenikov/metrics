@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"html/template"
@@ -33,9 +34,11 @@ const metricsTemplate = `
 var tmpl = template.Must(template.New("metrics").Parse(metricsTemplate))
 
 type Service interface {
-	ParseAndSave(mType, id, value string) (models.Metrics, error)
-	GetMetrica(mType, id string) (*models.Metrics, error)
-	GetListMetrics() ([]models.Metrics, error)
+	ParseAndSave(ctx context.Context, mType, id, value string) (models.Metrics, error)
+	GetMetrica(ctx context.Context, mType, id string) (*models.Metrics, error)
+	GetListMetrics(ctx context.Context) ([]models.Metrics, error)
+	UpdateBatch(ctx context.Context, metrics []models.Metrics) error
+	PingDB() error
 }
 
 type Handler struct {
@@ -47,7 +50,7 @@ func NewHandler(svc Service) *Handler {
 }
 
 func (h *Handler) GetMetricsList(w http.ResponseWriter, r *http.Request) {
-	metrics, err := h.svc.GetListMetrics()
+	metrics, err := h.svc.GetListMetrics(r.Context())
 	if err != nil {
 		logger.Log.Error("Can't get metrics", zap.Error(err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -72,7 +75,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := h.svc.ParseAndSave(mType, mName, mValue)
+	_, err := h.svc.ParseAndSave(r.Context(), mType, mName, mValue)
 	if err != nil {
 		h.errorProcess(err, w)
 		return
@@ -110,13 +113,13 @@ func (h *Handler) UpdateJSON(w http.ResponseWriter, r *http.Request) {
 	)
 
 	valStr := metrica.ValueString()
-	_, err = h.svc.ParseAndSave(metrica.MType, metrica.ID, valStr)
+	_, err = h.svc.ParseAndSave(r.Context(), metrica.MType, metrica.ID, valStr)
 	if err != nil {
 		h.errorProcess(err, w)
 		return
 	}
 
-	m, e := h.svc.GetMetrica(metrica.MType, metrica.ID)
+	m, e := h.svc.GetMetrica(r.Context(), metrica.MType, metrica.ID)
 	if e != nil {
 		h.errorProcess(e, w)
 		return
@@ -150,7 +153,7 @@ func (h *Handler) GetMetricaJSON(w http.ResponseWriter, r *http.Request) {
 		zap.String("ID", metrica.ID),
 		zap.String("Type", metrica.MType),
 	)
-	foundMetrica, err := h.svc.GetMetrica(metrica.MType, metrica.ID)
+	foundMetrica, err := h.svc.GetMetrica(r.Context(), metrica.MType, metrica.ID)
 	if err != nil {
 		logger.Log.Debug("GetMetricaJson error",
 			zap.String("Metrica name", metrica.ID),
@@ -200,7 +203,7 @@ func (h *Handler) GetMetrica(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mm, err := h.svc.GetMetrica(mType, mName)
+	mm, err := h.svc.GetMetrica(r.Context(), mType, mName)
 
 	if err != nil {
 		h.errorProcess(err, w)
@@ -213,6 +216,38 @@ func (h *Handler) GetMetrica(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(result))
+}
+
+func (h *Handler) UpdateBatch(w http.ResponseWriter, r *http.Request) {
+	var metrics []models.Metrics
+	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if len(metrics) == 0 {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if err := h.svc.UpdateBatch(r.Context(), metrics); err != nil {
+		h.errorProcess(err, w)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) PingDB(w http.ResponseWriter, r *http.Request) {
+	err := h.svc.PingDB()
+	if err != nil {
+		h.errorProcess(err, w)
+		return
+	}
+
+	w.Header().Set("Content-Type", models.ContentTypeText)
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
 }
 
 func (h *Handler) errorProcess(err error, w http.ResponseWriter) {

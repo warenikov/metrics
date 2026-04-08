@@ -19,9 +19,11 @@ type Handler struct {
 type MetricsHandler interface {
 	Update(w http.ResponseWriter, r *http.Request)
 	UpdateJSON(w http.ResponseWriter, r *http.Request)
+	UpdateBatch(w http.ResponseWriter, r *http.Request)
 	GetMetrica(w http.ResponseWriter, r *http.Request)
 	GetMetricaJSON(w http.ResponseWriter, r *http.Request)
 	GetMetricsList(w http.ResponseWriter, r *http.Request)
+	PingDB(w http.ResponseWriter, r *http.Request)
 }
 
 type Server struct {
@@ -36,9 +38,12 @@ func New(cfg *config.Config, h MetricsHandler) *Server {
 
 	r.Post("/update/{type}/{name}/{value}", h.Update)
 	r.Post("/update/", h.UpdateJSON)
+	r.Post("/updates/", h.UpdateBatch)
 	r.Post("/value/", h.GetMetricaJSON)
 	r.Get("/value/{type}/{name}", h.GetMetrica)
 	r.Get("/", h.GetMetricsList)
+
+	r.Get("/ping", h.PingDB)
 
 	return &Server{
 		httpServer: &http.Server{
