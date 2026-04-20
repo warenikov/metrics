@@ -16,6 +16,7 @@ type Config struct {
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	Restore         bool   `env:"RESTORE"`
 	DBDSN           string `env:"DATABASE_DSN"`
+	Key             string `env:"KEY"`
 }
 
 func LoadServerConfig() (*Config, error) {
@@ -26,6 +27,7 @@ func LoadServerConfig() (*Config, error) {
 		FileStoragePath: "storage.txt",
 		Restore:         true,
 		DBDSN:           "",
+		Key:             "",
 	}
 
 	if err := loadFromEnv(cfg); err != nil {
@@ -39,6 +41,7 @@ func LoadServerConfig() (*Config, error) {
 	fs.StringVar(&cfg.LogLevel, "l", cfg.LogLevel, "Log level")
 	fs.UintVar(&cfg.StoreInterval, "i", cfg.StoreInterval, "Store interval in seconds")
 	fs.StringVar(&cfg.DBDSN, "d", cfg.DBDSN, "Database DNS string")
+	fs.StringVar(&cfg.Key, "k", cfg.Key, "Key for signing")
 	if err := fs.Parse(flagArgs()); err != nil {
 		return nil, fmt.Errorf("invalid flag: %w", err)
 	}
@@ -63,6 +66,7 @@ func LoadAgentConfig() (*Config, error) {
 	fs.IntVar(&cfg.ReportInterval, "r", cfg.ReportInterval, "Reporting interval in seconds")
 	fs.IntVar(&cfg.PollInterval, "p", cfg.PollInterval, "Polling interval in seconds")
 	fs.StringVar(&cfg.LogLevel, "l", cfg.LogLevel, "Log level")
+	fs.StringVar(&cfg.Key, "k", cfg.Key, "Key for signing")
 	if err := fs.Parse(flagArgs()); err != nil {
 		return nil, fmt.Errorf("invalid flag: %w", err)
 	}

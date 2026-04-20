@@ -3,6 +3,9 @@ package middleware
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -160,4 +163,93 @@ func TestLoggerMiddleware(t *testing.T) {
 			assert.Equal(t, tt.responseBody, w.Body.String())
 		})
 	}
+}
+
+// --- HashMiddleware ---
+
+func testHMAC(body []byte, key string) string {
+	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func TestHashMiddleware_NoKey(t *testing.T) {
+	handler := HashMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("body"))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "ok", w.Body.String())
+	assert.Empty(t, w.Header().Get("HashSHA256"))
+}
+
+func TestHashMiddleware_ValidHash(t *testing.T) {
+	const key = "secret"
+	body := []byte(`{"id":"Alloc","type":"gauge"}`)
+
+	handler := HashMiddleware(key)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("HashSHA256", testHMAC(body, key))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestHashMiddleware_InvalidHash(t *testing.T) {
+	const key = "secret"
+	body := []byte(`{"id":"Alloc","type":"gauge"}`)
+
+	handler := HashMiddleware(key)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("HashSHA256", "invalidsignature")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHashMiddleware_NoHashHeader(t *testing.T) {
+	const key = "secret"
+
+	handler := HashMiddleware(key)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("body"))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestHashMiddleware_ResponseHash(t *testing.T) {
+	const key = "secret"
+	responseBody := []byte(`{"result":"ok"}`)
+
+	handler := HashMiddleware(key)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(responseBody)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, testHMAC(responseBody, key), w.Header().Get("HashSHA256"))
+	assert.Equal(t, string(responseBody), w.Body.String())
 }

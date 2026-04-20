@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +27,12 @@ var (
 )
 
 var agentRetryDelays = []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
+
+func computeHMAC(body []byte, key string) string {
+	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
+}
 
 func isRetryableNetworkError(err error) bool {
 	var netErr net.Error
@@ -72,6 +81,7 @@ type MetricaAgent struct {
 	pollInterval time.Duration
 	sendInterval time.Duration
 	serverAddr   string
+	key          string
 }
 
 func NewMetricaAgent(cfg *config.Config) *MetricaAgent {
@@ -83,6 +93,7 @@ func NewMetricaAgent(cfg *config.Config) *MetricaAgent {
 		pollInterval: time.Duration(cfg.PollInterval) * time.Second,
 		sendInterval: time.Duration(cfg.ReportInterval) * time.Second,
 		serverAddr:   srv,
+		key:          cfg.Key,
 	}
 }
 
@@ -267,6 +278,9 @@ func (m *MetricaAgent) postBatchRequest(data []byte) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
+		if m.key != "" {
+			req.Header.Set("HashSHA256", computeHMAC(data, m.key))
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -336,6 +350,9 @@ func (m *MetricaAgent) postRequest(data []byte, name string) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
+		if m.key != "" {
+			req.Header.Set("HashSHA256", computeHMAC(data, m.key))
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {

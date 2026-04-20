@@ -35,6 +35,7 @@ func New(cfg *config.Config, h MetricsHandler) *Server {
 
 	r.Use(middleware.LoggerMiddleware)
 	r.Use(middleware.GzipMiddleware)
+	r.Use(middleware.HashMiddleware(cfg.Key))
 
 	r.Post("/update/{type}/{name}/{value}", h.Update)
 	r.Post("/update/", h.UpdateJSON)
