@@ -1,0 +1,33 @@
+# Это поле должно быть на самом верху, вне блоков
+version: 2
+
+linters:
+  disable-all: true
+  enable:
+    - govet         # Базовые проверки (printf, методы и т.д.)
+    - errcheck      # Проверка необработанных ошибок
+    - staticcheck   # Мега-линтер (включает большинство проверок из вашего кода)
+    - unused        # Поиск неиспользуемого кода
+    - bodyclose     # Проверка закрытия HTTP-тела
+    - rowserrcheck  # Проверка Rows.Err() — то, что было в вашем коде!
+    - sqlclosecheck # Проверка закрытия соединений sql/sqlx
+
+linters-settings:
+  govet:
+    enable-all: true
+    enable:
+      - nilness
+      - unusedwrite
+
+  staticcheck:
+  # Поскольку у вас нет отдельного stylecheck,
+  # исключения для него в этой сборке могут не сработать или не требоваться.
+
+issues:
+  exclude-rules:
+    # Исключения из вашего исходного кода
+    - linters: [staticcheck]
+      text: "SA6002|SA4005"
+
+  max-issues-per-linter: 0
+  max-same-issues: 0

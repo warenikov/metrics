@@ -6,7 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"metrics/internal/logger"
 	"net/http"
+
+	"go.uber.org/zap"
 )
 
 type hashResponseWriter struct {
@@ -33,7 +36,12 @@ func HashMiddleware(key string) func(http.Handler) http.Handler {
 					return
 				}
 				r.Body = io.NopCloser(bytes.NewReader(body))
-				if !hmac.Equal([]byte(h), []byte(hashBody(body, key))) {
+				computed := hashBody(body, key)
+				logger.Log.Debug("hash check",
+					zap.String("received", h),
+					zap.String("computed", computed),
+				)
+				if !hmac.Equal([]byte(h), []byte(computed)) {
 					http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 					return
 				}

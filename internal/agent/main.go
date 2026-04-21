@@ -98,7 +98,7 @@ func NewMetricaAgent(cfg *config.Config) *MetricaAgent {
 }
 
 func (m *MetricaAgent) Run() {
-	var timePassed time.Duration
+	timePassed := m.sendInterval - m.pollInterval
 	for {
 		_ = m.Poll()
 		timePassed += m.pollInterval
