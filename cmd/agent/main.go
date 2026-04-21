@@ -4,7 +4,6 @@ import (
 	"metrics/internal/agent"
 	"metrics/internal/config"
 	"metrics/internal/logger"
-	"os"
 
 	"go.uber.org/zap"
 )
@@ -18,12 +17,6 @@ func main() {
 	if err := logger.Initialize(cfg.LogLevel); err != nil {
 		logger.Log.Fatal("Failed to initialize logger", zap.Error(err))
 	}
-	fileContent, fileErr := os.ReadFile(cfg.Key)
-	logger.Log.Info("key diagnostics",
-		zap.String("key_value", cfg.Key),
-		zap.String("file_content", string(fileContent)),
-		zap.Bool("file_exists", fileErr == nil),
-	)
 	agent.Run()
 
 }
