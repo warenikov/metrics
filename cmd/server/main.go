@@ -77,6 +77,12 @@ func main() {
 			logger.Log.Fatal("Failed to start server", zap.Error(err))
 		}
 	}()
+	fileContent, fileErr := os.ReadFile(cfg.Key)
+	logger.Log.Info("key diagnostics",
+		zap.String("key_value", cfg.Key),
+		zap.String("file_content", string(fileContent)),
+		zap.Bool("file_exists", fileErr == nil),
+	)
 	logger.Log.Info("Server started", zap.String("host", cfg.ServerAddr))
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
