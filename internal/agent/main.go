@@ -15,8 +15,10 @@ import (
 	"metrics/pkg/compress"
 	"net"
 	"net/http"
+	"os"
 	"reflect"
 	"runtime"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -84,6 +86,15 @@ type MetricaAgent struct {
 	key          string
 }
 
+func resolveKey(key string) string {
+	if strings.HasPrefix(key, "/") {
+		if _, err := os.Stat(key); err != nil {
+			return ""
+		}
+	}
+	return key
+}
+
 func NewMetricaAgent(cfg *config.Config) *MetricaAgent {
 	srv := fmt.Sprintf("http://%s", cfg.ServerAddr)
 	return &MetricaAgent{
@@ -93,7 +104,7 @@ func NewMetricaAgent(cfg *config.Config) *MetricaAgent {
 		pollInterval: time.Duration(cfg.PollInterval) * time.Second,
 		sendInterval: time.Duration(cfg.ReportInterval) * time.Second,
 		serverAddr:   srv,
-		key:          cfg.Key,
+		key:          resolveKey(cfg.Key),
 	}
 }
 
