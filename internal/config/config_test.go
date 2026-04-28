@@ -93,6 +93,64 @@ func TestLoadServerConfig(t *testing.T) {
 	}
 }
 
+func TestLoadAgentConfigRateLimit(t *testing.T) {
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	tests := []struct {
+		name              string
+		envVars           map[string]string
+		args              []string
+		wantErr           bool
+		expectedRateLimit int
+	}{
+		{
+			name:              "default zero",
+			envVars:           map[string]string{},
+			args:              []string{},
+			expectedRateLimit: 0,
+		},
+		{
+			name:              "positive via flag",
+			args:              []string{"-l", "3"},
+			expectedRateLimit: 3,
+		},
+		{
+			name:              "positive via env",
+			envVars:           map[string]string{"RATE_LIMIT": "5"},
+			expectedRateLimit: 5,
+		},
+		{
+			name:    "negative via flag returns error",
+			args:    []string{"-l", "-1"},
+			wantErr: true,
+		},
+		{
+			name:    "negative via env returns error",
+			envVars: map[string]string{"RATE_LIMIT": "-2"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.envVars {
+				t.Setenv(k, v)
+			}
+			os.Args = append([]string{"test_bin"}, tt.args...)
+
+			cfg, err := LoadAgentConfig()
+
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedRateLimit, cfg.RateLimit)
+		})
+	}
+}
+
 func TestLoadAgentConfig(t *testing.T) {
 	originalArgs := os.Args
 	defer func() { os.Args = originalArgs }()

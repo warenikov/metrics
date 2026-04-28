@@ -17,6 +17,7 @@ type Config struct {
 	Restore         bool   `env:"RESTORE"`
 	DBDSN           string `env:"DATABASE_DSN"`
 	Key             string `env:"KEY"`
+	RateLimit       int    `env:"RATE_LIMIT"`
 }
 
 func LoadServerConfig() (*Config, error) {
@@ -65,10 +66,13 @@ func LoadAgentConfig() (*Config, error) {
 	fs.StringVar(&cfg.ServerAddr, "a", cfg.ServerAddr, "HTTP address")
 	fs.IntVar(&cfg.ReportInterval, "r", cfg.ReportInterval, "Reporting interval in seconds")
 	fs.IntVar(&cfg.PollInterval, "p", cfg.PollInterval, "Polling interval in seconds")
-	fs.StringVar(&cfg.LogLevel, "l", cfg.LogLevel, "Log level")
 	fs.StringVar(&cfg.Key, "k", cfg.Key, "Key for signing")
+	fs.IntVar(&cfg.RateLimit, "l", cfg.RateLimit, "Rate limit for outgoing requests")
 	if err := fs.Parse(flagArgs()); err != nil {
 		return nil, fmt.Errorf("invalid flag: %w", err)
+	}
+	if cfg.RateLimit < 0 {
+		return nil, fmt.Errorf("rate limit must be non-negative, got %d", cfg.RateLimit)
 	}
 
 	return cfg, nil

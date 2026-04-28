@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,8 +20,11 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 	"go.uber.org/zap"
 )
 
@@ -70,6 +74,8 @@ type GaugeMertics struct {
 	Sys           float64 `json:"sys"`
 	TotalAlloc    float64 `json:"total_alloc"`
 	RandomValue   float64 `json:"random_value"`
+	TotalMemory   float64 `json:"total_memory"`
+	FreeMemory    float64 `json:"free_memory"`
 }
 
 type CounterMertics struct {
@@ -77,13 +83,16 @@ type CounterMertics struct {
 }
 
 type MetricaAgent struct {
-	ms           *runtime.MemStats
-	gauges       *GaugeMertics
-	counters     *CounterMertics
-	pollInterval time.Duration
-	sendInterval time.Duration
-	serverAddr   string
-	key          string
+	mu             sync.RWMutex
+	ms             *runtime.MemStats
+	gauges         *GaugeMertics
+	counters       *CounterMertics
+	cpuUtilization []float64
+	pollInterval   time.Duration
+	sendInterval   time.Duration
+	serverAddr     string
+	key            string
+	rateLimit      int
 }
 
 func resolveKey(key string) string {
@@ -105,20 +114,109 @@ func NewMetricaAgent(cfg *config.Config) *MetricaAgent {
 		sendInterval: time.Duration(cfg.ReportInterval) * time.Second,
 		serverAddr:   srv,
 		key:          resolveKey(cfg.Key),
+		rateLimit:    cfg.RateLimit,
 	}
 }
 
-func (m *MetricaAgent) Run() {
-	timePassed := m.sendInterval - m.pollInterval
+func (m *MetricaAgent) Run(ctx context.Context) {
+	rateLimit := m.rateLimit
+	if rateLimit <= 0 {
+		rateLimit = 1
+	}
+
+	jobs := make(chan []models.Metrics, rateLimit)
+
+	var wg sync.WaitGroup
+	for i := 0; i < rateLimit; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.worker(jobs)
+		}()
+	}
+
+	go m.pollRuntime(ctx)
+	go m.pollGopsutil(ctx)
+	m.sender(ctx, jobs)
+
+	close(jobs)
+	wg.Wait()
+}
+
+func (m *MetricaAgent) pollRuntime(ctx context.Context) {
+	ticker := time.NewTicker(m.pollInterval)
+	defer ticker.Stop()
 	for {
-		_ = m.Poll()
-		timePassed += m.pollInterval
-		if timePassed >= m.sendInterval {
-			m.SendBatch()
-			m.counters.PollCount = 0 //обнуляем каунтер после отправки
-			timePassed = 0
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.mu.Lock()
+			runtime.ReadMemStats(m.ms)
+			m.collectMerticsManual()
+			m.mu.Unlock()
 		}
-		time.Sleep(m.pollInterval)
+	}
+}
+
+func (m *MetricaAgent) pollGopsutil(ctx context.Context) {
+	ticker := time.NewTicker(m.pollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			vm, memErr := mem.VirtualMemory()
+			cpuPercents, cpuErr := cpu.Percent(0, true)
+
+			m.mu.Lock()
+			if memErr == nil {
+				m.gauges.TotalMemory = float64(vm.Total)
+				m.gauges.FreeMemory = float64(vm.Free)
+			} else {
+				logger.Log.Error("gopsutil mem error", zap.Error(memErr))
+			}
+			if cpuErr == nil {
+				m.cpuUtilization = cpuPercents
+			} else {
+				logger.Log.Error("gopsutil cpu error", zap.Error(cpuErr))
+			}
+			m.mu.Unlock()
+		}
+	}
+}
+
+func (m *MetricaAgent) sender(ctx context.Context, jobs chan<- []models.Metrics) {
+	ticker := time.NewTicker(m.sendInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.mu.Lock()
+			batch := m.collectBatch()
+			m.counters.PollCount = 0
+			m.mu.Unlock()
+
+			select {
+			case jobs <- batch:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
+func (m *MetricaAgent) worker(jobs <-chan []models.Metrics) {
+	for batch := range jobs {
+		data, err := json.Marshal(batch)
+		if err != nil {
+			logger.Log.Error("failed to marshal batch", zap.Error(err))
+			continue
+		}
+		m.postBatchRequest(data)
 	}
 }
 
@@ -256,6 +354,13 @@ func (m *MetricaAgent) collectBatch() []models.Metrics {
 		gaugeVal("Sys", g.Sys),
 		gaugeVal("TotalAlloc", g.TotalAlloc),
 		gaugeVal("RandomValue", g.RandomValue),
+	}
+	batch = append(batch,
+		gaugeVal("TotalMemory", g.TotalMemory),
+		gaugeVal("FreeMemory", g.FreeMemory),
+	)
+	for i, v := range m.cpuUtilization {
+		batch = append(batch, gaugeVal(fmt.Sprintf("CPUutilization%d", i+1), v))
 	}
 	delta := m.counters.PollCount
 	batch = append(batch, models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &delta})
