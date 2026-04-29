@@ -17,11 +17,11 @@ import (
 func TestCollectBatchIncludesGopsutilMetrics(t *testing.T) {
 	m := &MetricaAgent{
 		ms: &runtime.MemStats{},
-		gauges: &GaugeMertics{
+		gauges: &models.GaugeMertics{
 			TotalMemory: 8 * 1024 * 1024 * 1024,
 			FreeMemory:  4 * 1024 * 1024 * 1024,
 		},
-		counters:       &CounterMertics{},
+		counters:       &models.CounterMertics{},
 		cpuUtilization: []float64{10.5, 20.3},
 	}
 
@@ -59,8 +59,8 @@ func TestWorkerPoolRespectsRateLimit(t *testing.T) {
 
 	m := &MetricaAgent{
 		ms:         &runtime.MemStats{},
-		gauges:     &GaugeMertics{},
-		counters:   &CounterMertics{},
+		gauges:     &models.GaugeMertics{},
+		counters:   &models.CounterMertics{},
 		serverAddr: srv.URL,
 		rateLimit:  rateLimit,
 	}
@@ -92,8 +92,8 @@ func TestWorkerPoolRespectsRateLimit(t *testing.T) {
 func BenchmarkCollectMetricsReflection(b *testing.B) {
 	m := &MetricaAgent{
 		ms:       &runtime.MemStats{},
-		gauges:   &GaugeMertics{},
-		counters: &CounterMertics{},
+		gauges:   &models.GaugeMertics{},
+		counters: &models.CounterMertics{},
 	}
 	runtime.ReadMemStats(m.ms)
 
@@ -107,8 +107,8 @@ func BenchmarkCollectMetricsReflection(b *testing.B) {
 func BenchmarkCollectMetricsManual(b *testing.B) {
 	m := &MetricaAgent{
 		ms:       &runtime.MemStats{},
-		gauges:   &GaugeMertics{},
-		counters: &CounterMertics{},
+		gauges:   &models.GaugeMertics{},
+		counters: &models.CounterMertics{},
 	}
 	runtime.ReadMemStats(m.ms)
 

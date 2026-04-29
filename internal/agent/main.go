@@ -45,48 +45,11 @@ func isRetryableNetworkError(err error) bool {
 	return errors.As(err, &netErr)
 }
 
-type GaugeMertics struct {
-	Alloc         float64 `json:"alloc"`
-	BuckHashSys   float64 `json:"buck_hash_sys"`
-	Frees         float64 `json:"frees"`
-	GCCPUFraction float64 `json:"gc_cpu_fraction"`
-	GCSys         float64 `json:"gc_sys"`
-	HeapAlloc     float64 `json:"heap_alloc"`
-	HeapIdle      float64 `json:"heap_idle"`
-	HeapInuse     float64 `json:"heap_inuse"`
-	HeapObjects   float64 `json:"heap_objects"`
-	HeapReleased  float64 `json:"heap_released"`
-	HeapSys       float64 `json:"heap_sys"`
-	LastGC        float64 `json:"last_gc"`
-	Lookups       float64 `json:"lookups"`
-	MCacheInuse   float64 `json:"mcache_inuse"`
-	MCacheSys     float64 `json:"mcache_sys"`
-	MSpanInuse    float64 `json:"mspan_inuse"`
-	MSpanSys      float64 `json:"mspan_sys"`
-	Mallocs       float64 `json:"mallocs"`
-	NextGC        float64 `json:"next_gc"`
-	NumForcedGC   float64 `json:"num_forced_gc"`
-	NumGC         float64 `json:"num_gc"`
-	OtherSys      float64 `json:"other_sys"`
-	PauseTotalNs  float64 `json:"pause_total_ns"`
-	StackInuse    float64 `json:"stack_inuse"`
-	StackSys      float64 `json:"stack_sys"`
-	Sys           float64 `json:"sys"`
-	TotalAlloc    float64 `json:"total_alloc"`
-	RandomValue   float64 `json:"random_value"`
-	TotalMemory   float64 `json:"total_memory"`
-	FreeMemory    float64 `json:"free_memory"`
-}
-
-type CounterMertics struct {
-	PollCount int64 `json:"poll_count"`
-}
-
 type MetricaAgent struct {
 	mu             sync.RWMutex
 	ms             *runtime.MemStats
-	gauges         *GaugeMertics
-	counters       *CounterMertics
+	gauges         *models.GaugeMertics
+	counters       *models.CounterMertics
 	cpuUtilization []float64
 	pollInterval   time.Duration
 	sendInterval   time.Duration
@@ -108,8 +71,8 @@ func NewMetricaAgent(cfg *config.Config) *MetricaAgent {
 	srv := fmt.Sprintf("http://%s", cfg.ServerAddr)
 	return &MetricaAgent{
 		ms:           &runtime.MemStats{},
-		gauges:       &GaugeMertics{},
-		counters:     &CounterMertics{},
+		gauges:       &models.GaugeMertics{},
+		counters:     &models.CounterMertics{},
 		pollInterval: time.Duration(cfg.PollInterval) * time.Second,
 		sendInterval: time.Duration(cfg.ReportInterval) * time.Second,
 		serverAddr:   srv,
@@ -380,14 +343,14 @@ func (m *MetricaAgent) SendBatch() {
 
 func (m *MetricaAgent) postBatchRequest(data []byte) {
 	var lastErr error
-	client := &http.Client{}
+	client := &http.Client{Timeout: 30 * time.Second}
 
 	doRequest := func() error {
 		compressedData, err := compress.Compress(data)
 		if err != nil {
 			return err
 		}
-		req, err := http.NewRequest("POST", m.serverAddr+"/updates/", compressedData)
+		req, err := http.NewRequest(http.MethodPost, m.serverAddr+"/updates/", compressedData)
 		if err != nil {
 			return err
 		}
@@ -452,14 +415,14 @@ func (m *MetricaAgent) sendCounter(name string, value int64) {
 
 func (m *MetricaAgent) postRequest(data []byte, name string) {
 	var lastErr error
-	client := &http.Client{}
+	client := &http.Client{Timeout: 30 * time.Second}
 
 	doRequest := func() error {
 		compressedData, err := compress.Compress(data)
 		if err != nil {
 			return err
 		}
-		req, err := http.NewRequest("POST", m.serverAddr+"/update/", compressedData)
+		req, err := http.NewRequest(http.MethodPost, m.serverAddr+"/update/", compressedData)
 		if err != nil {
 			return err
 		}

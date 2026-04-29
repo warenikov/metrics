@@ -1,125 +1,96 @@
-package handler
+package server
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"metrics/internal/repository"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"metrics/internal/model"
-	"metrics/internal/service"
-
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	models "metrics/internal/model"
+	"metrics/internal/repository"
+	"metrics/internal/service"
 )
 
-// mockService реализует интерфейс Service для тестирования хендлера в изоляции.
-type mockService struct {
-	pingErr error
+// mockUpdater реализует MetricsUpdater для изолированного тестирования.
+type mockUpdater struct {
+	parseAndSaveErr error
+	updateBatchErr  error
 }
 
-func (m *mockService) PingDB() error { return m.pingErr }
-func (m *mockService) ParseAndSave(_ context.Context, mType, id, value string) (models.Metrics, error) {
-	return models.Metrics{}, nil
+func (m *mockUpdater) ParseAndSave(_ context.Context, _, _, _ string) (models.Metrics, error) {
+	return models.Metrics{}, m.parseAndSaveErr
 }
-func (m *mockService) GetMetrica(_ context.Context, mType, id string) (*models.Metrics, error) {
-	return nil, nil
+func (m *mockUpdater) UpdateBatch(_ context.Context, _ []models.Metrics) error {
+	return m.updateBatchErr
 }
-func (m *mockService) GetListMetrics(_ context.Context) ([]models.Metrics, error) {
-	return nil, nil
+
+// mockGetter реализует MetricsGetter.
+type mockGetter struct {
+	result *models.Metrics
+	err    error
+	list   []models.Metrics
 }
-func (m *mockService) UpdateBatch(_ context.Context, metrics []models.Metrics) error {
-	return nil
+
+func (m *mockGetter) GetMetrica(_ context.Context, _, _ string) (*models.Metrics, error) {
+	return m.result, m.err
+}
+func (m *mockGetter) GetListMetrics(_ context.Context) ([]models.Metrics, error) {
+	return m.list, nil
+}
+
+// mockHealth реализует HealthChecker.
+type mockHealth struct{ err error }
+
+func (m *mockHealth) PingDB() error { return m.err }
+
+func newTestAdapter(updater MetricsUpdater, getter MetricsGetter, health HealthChecker) *httpAdapter {
+	if updater == nil {
+		updater = &mockUpdater{}
+	}
+	if getter == nil {
+		getter = &mockGetter{}
+	}
+	if health == nil {
+		health = &mockHealth{}
+	}
+	return &httpAdapter{updater: updater, getter: getter, health: health}
 }
 
 func TestHandler_Update(t *testing.T) {
 	repo := repository.NewMemStorage()
 	svc := service.NewMetricsService(repo, nil)
-	h := NewHandler(svc)
+	h := newTestAdapter(svc, svc, svc)
 
-	// 2. Описываем сценарии
 	tests := []struct {
 		name           string
 		url            string
-		contentType    string
 		expectedStatus int
 	}{
-		{
-			name:           "Успешный gauge",
-			url:            "/update/gauge/Alloc/100.5",
-			contentType:    models.ContentTypeText,
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:           "Успешный counter",
-			url:            "/update/counter/PollCount/5",
-			contentType:    models.ContentTypeText,
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:           "Ошибка: неверный тип метрики",
-			url:            "/update/invalid/Alloc/100",
-			contentType:    models.ContentTypeText,
-			expectedStatus: http.StatusBadRequest,
-		},
-		{
-			name:           "Ошибка: нечисловое значение",
-			url:            "/update/gauge/Alloc/none",
-			contentType:    models.ContentTypeText,
-			expectedStatus: http.StatusBadRequest,
-		},
-		{
-			name:           "Ошибка: неверное значение для counter",
-			url:            "/update/counter/Alloc/100.5",
-			contentType:    models.ContentTypeText,
-			expectedStatus: http.StatusBadRequest,
-		},
-		{
-			name:           "Успешно отрицательное число для counter",
-			url:            "/update/counter/Alloc/-100",
-			contentType:    models.ContentTypeText,
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:           "Успешно: выход за int64",
-			url:            "/update/counter/Alloc/9223372036854775808",
-			contentType:    models.ContentTypeText,
-			expectedStatus: http.StatusBadRequest,
-		},
-		{
-			name:           "Успешно: выход за отрицательное int64",
-			url:            "/update/counter/Alloc/-9223372036854775908",
-			contentType:    models.ContentTypeText,
-			expectedStatus: http.StatusBadRequest,
-		},
-		{
-			name:           "Успешно: выход за float64",
-			url:            "/update/gauge/Alloc/1.8e309",
-			contentType:    models.ContentTypeText,
-			expectedStatus: http.StatusBadRequest,
-		},
-		{
-			name:           "Успешно: выход за отрицательное float64",
-			url:            "/update/gauge/Alloc/-1.8e309",
-			contentType:    models.ContentTypeText,
-			expectedStatus: http.StatusBadRequest,
-		},
+		{"Успешный gauge", "/update/gauge/Alloc/100.5", http.StatusOK},
+		{"Успешный counter", "/update/counter/PollCount/5", http.StatusOK},
+		{"Ошибка: неверный тип метрики", "/update/invalid/Alloc/100", http.StatusBadRequest},
+		{"Ошибка: нечисловое значение", "/update/gauge/Alloc/none", http.StatusBadRequest},
+		{"Ошибка: неверное значение для counter", "/update/counter/Alloc/100.5", http.StatusBadRequest},
+		{"Успешно отрицательное число для counter", "/update/counter/Alloc/-100", http.StatusOK},
+		{"Выход за int64", "/update/counter/Alloc/9223372036854775808", http.StatusBadRequest},
+		{"Выход за отрицательное int64", "/update/counter/Alloc/-9223372036854775908", http.StatusBadRequest},
+		{"Выход за float64", "/update/gauge/Alloc/1.8e309", http.StatusBadRequest},
+		{"Выход за отрицательное float64", "/update/gauge/Alloc/-1.8e309", http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := chi.NewRouter()
-			r.Post("/update/{type}/{name}/{value}", h.Update)
+			r.Post("/update/{type}/{name}/{value}", h.update)
 
 			req := httptest.NewRequest(http.MethodPost, tt.url, nil)
-			req.Header.Set("Content-Type", tt.contentType)
 			w := httptest.NewRecorder()
-
 			r.ServeHTTP(w, req)
 
 			assert.Equal(t, tt.expectedStatus, w.Code)
@@ -130,10 +101,10 @@ func TestHandler_Update(t *testing.T) {
 func TestHandler_GetMetrica(t *testing.T) {
 	repo := repository.NewMemStorage()
 	svc := service.NewMetricsService(repo, nil)
-	h := NewHandler(svc)
+	h := newTestAdapter(svc, svc, svc)
 
-	var valCounter int64 = 10 // Явно указываем int64
-	var valGauge = 10.5       // Явно указываем int64
+	var valCounter int64 = 10
+	var valGauge = 10.5
 	repo.UpdateGauges(context.Background(), models.Metrics{ID: "TestGauge", MType: models.Gauge, Value: &valGauge})
 	repo.UpdateCounter(context.Background(), models.Metrics{ID: "TestName", MType: models.Counter, Delta: &valCounter})
 	repo.UpdateCounter(context.Background(), models.Metrics{ID: "TestCounter", MType: models.Counter, Delta: &valCounter})
@@ -144,42 +115,23 @@ func TestHandler_GetMetrica(t *testing.T) {
 		expectedStatus int
 		expectedBody   string
 	}{
-		{
-			name:           "Получение существующей метрики",
-			url:            "/value/gauge/TestGauge",
-			expectedStatus: http.StatusOK,
-			expectedBody:   "10.5",
-		},
-		{
-			name:           "Получение существующей метрики",
-			url:            "/value/gauge/TestGauge",
-			expectedStatus: http.StatusOK,
-			expectedBody:   "10.5",
-		},
-		{
-			name:           "Запрос несуществующей метрики",
-			url:            "/value/gauge/Unknown",
-			expectedStatus: http.StatusNotFound,
-		},
-		{
-			name:           "Запрос метрики c неверным типом",
-			url:            "/value/gauge/TestName",
-			expectedStatus: http.StatusBadRequest,
-		},
+		{"Получение существующей метрики", "/value/gauge/TestGauge", http.StatusOK, "10.5"},
+		{"Повторное получение метрики", "/value/gauge/TestGauge", http.StatusOK, "10.5"},
+		{"Запрос несуществующей метрики", "/value/gauge/Unknown", http.StatusNotFound, ""},
+		{"Запрос метрики c неверным типом", "/value/gauge/TestName", http.StatusBadRequest, ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := chi.NewRouter()
-			r.Get("/value/{type}/{name}", h.GetMetrica)
+			r.Get("/value/{type}/{name}", h.getMetrica)
 
 			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
 			w := httptest.NewRecorder()
-
 			r.ServeHTTP(w, req)
 
 			assert.Equal(t, tt.expectedStatus, w.Code)
-			if tt.expectedStatus == http.StatusOK {
+			if tt.expectedBody != "" {
 				assert.Equal(t, tt.expectedBody, w.Body.String())
 			}
 		})
@@ -189,10 +141,10 @@ func TestHandler_GetMetrica(t *testing.T) {
 func TestHandler_UpdateJSON(t *testing.T) {
 	repo := repository.NewMemStorage()
 	svc := service.NewMetricsService(repo, nil)
-	h := NewHandler(svc)
+	h := newTestAdapter(svc, svc, svc)
 
 	r := chi.NewRouter()
-	r.Post("/update/", h.UpdateJSON)
+	r.Post("/update/", h.updateJSON)
 
 	tests := []struct {
 		name           string
@@ -215,16 +167,8 @@ func TestHandler_UpdateJSON(t *testing.T) {
 			expectedType:   models.Counter,
 			expectedID:     "PollCount",
 		},
-		{
-			name:           "Битый JSON",
-			body:           `{bad json}`,
-			expectedStatus: http.StatusBadRequest,
-		},
-		{
-			name:           "Неверный тип метрики",
-			body:           `{"id":"x","type":"unknown","value":1.0}`,
-			expectedStatus: http.StatusBadRequest,
-		},
+		{name: "Битый JSON", body: `{bad json}`, expectedStatus: http.StatusBadRequest},
+		{name: "Неверный тип метрики", body: `{"id":"x","type":"unknown","value":1.0}`, expectedStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -232,7 +176,6 @@ func TestHandler_UpdateJSON(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/update/", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
-
 			r.ServeHTTP(w, req)
 
 			assert.Equal(t, tt.expectedStatus, w.Code)
@@ -251,16 +194,15 @@ func TestHandler_UpdateJSON(t *testing.T) {
 func TestHandler_GetMetricaJSON(t *testing.T) {
 	repo := repository.NewMemStorage()
 	svc := service.NewMetricsService(repo, nil)
-	h := NewHandler(svc)
+	h := newTestAdapter(svc, svc, svc)
 
-	// Предзаполняем хранилище
 	gaugeVal := 100.5
 	var counterVal int64 = 5
 	repo.UpdateGauges(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &gaugeVal})
 	repo.UpdateCounter(context.Background(), models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &counterVal})
 
 	r := chi.NewRouter()
-	r.Post("/value/", h.GetMetricaJSON)
+	r.Post("/value/", h.getMetricaJSON)
 
 	tests := []struct {
 		name           string
@@ -286,21 +228,9 @@ func TestHandler_GetMetricaJSON(t *testing.T) {
 				assert.Equal(t, int64(5), *m.Delta)
 			},
 		},
-		{
-			name:           "Не существует",
-			body:           `{"id":"Unknown","type":"gauge"}`,
-			expectedStatus: http.StatusNotFound,
-		},
-		{
-			name:           "Неверный тип (gauge запрошен как counter)",
-			body:           `{"id":"Alloc","type":"counter"}`,
-			expectedStatus: http.StatusBadRequest,
-		},
-		{
-			name:           "Битый JSON",
-			body:           `{bad}`,
-			expectedStatus: http.StatusBadRequest,
-		},
+		{name: "Не существует", body: `{"id":"Unknown","type":"gauge"}`, expectedStatus: http.StatusNotFound},
+		{name: "Неверный тип (gauge как counter)", body: `{"id":"Alloc","type":"counter"}`, expectedStatus: http.StatusBadRequest},
+		{name: "Битый JSON", body: `{bad}`, expectedStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -308,7 +238,6 @@ func TestHandler_GetMetricaJSON(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/value/", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
-
 			r.ServeHTTP(w, req)
 
 			assert.Equal(t, tt.expectedStatus, w.Code)
@@ -329,10 +258,7 @@ func TestHandler_GetMetricsList(t *testing.T) {
 		setup        func(repo *repository.MemStorage)
 		expectInBody []string
 	}{
-		{
-			name:  "Пустое хранилище",
-			setup: func(repo *repository.MemStorage) {},
-		},
+		{name: "Пустое хранилище", setup: func(repo *repository.MemStorage) {}},
 		{
 			name: "Есть метрики",
 			setup: func(repo *repository.MemStorage) {
@@ -350,14 +276,13 @@ func TestHandler_GetMetricsList(t *testing.T) {
 			repo := repository.NewMemStorage()
 			tt.setup(repo)
 			svc := service.NewMetricsService(repo, nil)
-			h := NewHandler(svc)
+			h := newTestAdapter(svc, svc, svc)
 
 			r := chi.NewRouter()
-			r.Get("/", h.GetMetricsList)
+			r.Get("/", h.getMetricsList)
 
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			w := httptest.NewRecorder()
-
 			r.ServeHTTP(w, req)
 
 			assert.Equal(t, http.StatusOK, w.Code)
@@ -390,26 +315,18 @@ func TestHandler_UpdateBatch(t *testing.T) {
 			}(),
 			expectedStatus: http.StatusOK,
 		},
-		{
-			name:           "пустой батч",
-			body:           "[]",
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:           "невалидный JSON",
-			body:           "not-json",
-			expectedStatus: http.StatusBadRequest,
-		},
+		{name: "пустой батч", body: "[]", expectedStatus: http.StatusOK},
+		{name: "невалидный JSON", body: "not-json", expectedStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := repository.NewMemStorage()
 			svc := service.NewMetricsService(repo, nil)
-			h := NewHandler(svc)
+			h := newTestAdapter(svc, svc, svc)
 
 			r := chi.NewRouter()
-			r.Post("/updates/", h.UpdateBatch)
+			r.Post("/updates/", h.updateBatch)
 
 			req := httptest.NewRequest(http.MethodPost, "/updates/", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
@@ -427,25 +344,16 @@ func TestHandler_PingDB(t *testing.T) {
 		pingErr        error
 		expectedStatus int
 	}{
-		{
-			name:           "БД доступна",
-			pingErr:        nil,
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:           "БД недоступна",
-			pingErr:        errors.New("connection refused"),
-			expectedStatus: http.StatusInternalServerError,
-		},
+		{"БД доступна", nil, http.StatusOK},
+		{"БД недоступна", errors.New("connection refused"), http.StatusInternalServerError},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := &mockService{pingErr: tt.pingErr}
-			h := NewHandler(svc)
+			h := newTestAdapter(nil, nil, &mockHealth{err: tt.pingErr})
 
 			r := chi.NewRouter()
-			r.Get("/ping", h.PingDB)
+			r.Get("/ping", h.pingDB)
 
 			req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 			w := httptest.NewRecorder()

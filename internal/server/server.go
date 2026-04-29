@@ -3,53 +3,64 @@ package server
 import (
 	"context"
 	"errors"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	models "metrics/internal/model"
 	"metrics/internal/config"
 	"metrics/internal/logger"
 	"metrics/internal/middleware"
-	"metrics/internal/service"
-	"net/http"
-
-	"github.com/go-chi/chi/v5"
 )
 
-type Handler struct {
-	svc service.MetricsService
+const (
+	readTimeout  = 5 * time.Second
+	writeTimeout = 10 * time.Second
+	idleTimeout  = 120 * time.Second
+)
+
+type MetricsUpdater interface {
+	ParseAndSave(ctx context.Context, mType, id, value string) (models.Metrics, error)
+	UpdateBatch(ctx context.Context, metrics []models.Metrics) error
 }
 
-type MetricsHandler interface {
-	Update(w http.ResponseWriter, r *http.Request)
-	UpdateJSON(w http.ResponseWriter, r *http.Request)
-	UpdateBatch(w http.ResponseWriter, r *http.Request)
-	GetMetrica(w http.ResponseWriter, r *http.Request)
-	GetMetricaJSON(w http.ResponseWriter, r *http.Request)
-	GetMetricsList(w http.ResponseWriter, r *http.Request)
-	PingDB(w http.ResponseWriter, r *http.Request)
+type MetricsGetter interface {
+	GetMetrica(ctx context.Context, mType, id string) (*models.Metrics, error)
+	GetListMetrics(ctx context.Context) ([]models.Metrics, error)
+}
+
+type HealthChecker interface {
+	PingDB() error
 }
 
 type Server struct {
 	httpServer *http.Server
 }
 
-func New(cfg *config.Config, h MetricsHandler) *Server {
+func New(cfg *config.Config, updater MetricsUpdater, getter MetricsGetter, health HealthChecker) *Server {
 	r := chi.NewRouter()
 
 	r.Use(middleware.LoggerMiddleware)
 	r.Use(middleware.GzipMiddleware)
 	r.Use(middleware.HashMiddleware(cfg.Key))
 
-	r.Post("/update/{type}/{name}/{value}", h.Update)
-	r.Post("/update/", h.UpdateJSON)
-	r.Post("/updates/", h.UpdateBatch)
-	r.Post("/value/", h.GetMetricaJSON)
-	r.Get("/value/{type}/{name}", h.GetMetrica)
-	r.Get("/", h.GetMetricsList)
+	h := &httpAdapter{updater: updater, getter: getter, health: health}
 
-	r.Get("/ping", h.PingDB)
+	r.Post("/update/{type}/{name}/{value}", h.update)
+	r.Post("/update/", h.updateJSON)
+	r.Post("/updates/", h.updateBatch)
+	r.Post("/value/", h.getMetricaJSON)
+	r.Get("/value/{type}/{name}", h.getMetrica)
+	r.Get("/", h.getMetricsList)
+	r.Get("/ping", h.pingDB)
 
 	return &Server{
 		httpServer: &http.Server{
-			Addr:    cfg.ServerAddr,
-			Handler: r,
+			Addr:         cfg.ServerAddr,
+			Handler:      r,
+			ReadTimeout:  readTimeout,
+			WriteTimeout: writeTimeout,
+			IdleTimeout:  idleTimeout,
 		},
 	}
 }

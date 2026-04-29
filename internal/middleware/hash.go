@@ -32,7 +32,7 @@ func HashMiddleware(key string) func(http.Handler) http.Handler {
 			if h := r.Header.Get("HashSHA256"); h != "" {
 				body, err := io.ReadAll(r.Body)
 				if err != nil {
-					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+					http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 					return
 				}
 				r.Body = io.NopCloser(bytes.NewReader(body))

@@ -4,7 +4,6 @@ import (
 	"context"
 	"metrics/internal/config"
 	"metrics/internal/config/db"
-	"metrics/internal/handler"
 	"metrics/internal/logger"
 	"metrics/internal/repository"
 	"metrics/internal/server"
@@ -66,8 +65,7 @@ func main() {
 	}
 
 	svc := service.NewMetricsService(repo, pgxDB)
-	h := handler.NewHandler(svc)
-	srv := server.New(cfg, h)
+	srv := server.New(cfg, svc, svc, svc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
