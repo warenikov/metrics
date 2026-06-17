@@ -54,7 +54,7 @@ func (h *httpAdapter) emitAudit(r *http.Request, names []string) {
 		ip = realIP
 	}
 	h.broker.Emit(r.Context(), audit.AuditEvent{
-		Ts:        time.Now().Unix(),
+		TS:        time.Now().Unix(),
 		Metrics:   names,
 		IPAddress: ip,
 	})

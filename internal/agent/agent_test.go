@@ -105,7 +105,10 @@ func TestIsRetryableNetworkError(t *testing.T) {
 	url := srv.URL
 	srv.Close()
 
-	_, netErr := http.Get(url) //nolint:noctx
+	resp, netErr := http.Get(url) //nolint:noctx
+	if resp != nil {
+		resp.Body.Close()
+	}
 	require.Error(t, netErr)
 	assert.True(t, isRetryableNetworkError(netErr))
 	assert.False(t, isRetryableNetworkError(errors.New("plain error")))

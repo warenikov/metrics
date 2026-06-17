@@ -41,8 +41,10 @@ func Example_updateCounter() {
 	ts := newExampleServer()
 	defer ts.Close()
 
-	http.Post(ts.URL+"/update/counter/PollCount/3", "", nil) //nolint:errcheck
-	http.Post(ts.URL+"/update/counter/PollCount/7", "", nil) //nolint:errcheck
+	r1, _ := http.Post(ts.URL+"/update/counter/PollCount/3", "", nil)
+	r1.Body.Close()
+	r2, _ := http.Post(ts.URL+"/update/counter/PollCount/7", "", nil)
+	r2.Body.Close()
 
 	resp, _ := http.Get(ts.URL + "/value/counter/PollCount")
 	body, _ := io.ReadAll(resp.Body)
@@ -58,7 +60,8 @@ func Example_getMetricaValue() {
 	ts := newExampleServer()
 	defer ts.Close()
 
-	http.Post(ts.URL+"/update/gauge/Alloc/1.5", "", nil) //nolint:errcheck
+	r, _ := http.Post(ts.URL+"/update/gauge/Alloc/1.5", "", nil)
+	r.Body.Close()
 
 	resp, _ := http.Get(ts.URL + "/value/gauge/Alloc")
 	body, _ := io.ReadAll(resp.Body)
@@ -91,8 +94,9 @@ func Example_getMetricaJSON() {
 	defer ts.Close()
 
 	// Store the metric first.
-	http.Post(ts.URL+"/update/", "application/json", //nolint:errcheck
+	r, _ := http.Post(ts.URL+"/update/", "application/json",
 		strings.NewReader(`{"id":"Alloc","type":"gauge","value":3.5}`))
+	r.Body.Close()
 
 	// Retrieve it via JSON.
 	resp, _ := http.Post(ts.URL+"/value/", "application/json",

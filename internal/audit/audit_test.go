@@ -34,7 +34,7 @@ func TestBroker_Emit_AllObserversCalled(t *testing.T) {
 	obs2 := &captureObserver{}
 	broker := NewBroker(obs1, obs2)
 
-	event := AuditEvent{Ts: 1000, Metrics: []string{"Alloc"}, IPAddress: "127.0.0.1"}
+	event := AuditEvent{TS: 1000, Metrics: []string{"Alloc"}, IPAddress: "127.0.0.1"}
 	broker.Emit(context.Background(), event)
 
 	require.Len(t, obs1.events, 1)
@@ -48,7 +48,7 @@ func TestBroker_Emit_FailingObserverDoesNotStopOthers(t *testing.T) {
 	ok := &captureObserver{}
 	broker := NewBroker(failing, ok)
 
-	broker.Emit(context.Background(), AuditEvent{Ts: 1, Metrics: []string{"X"}, IPAddress: "1.2.3.4"})
+	broker.Emit(context.Background(), AuditEvent{TS: 1, Metrics: []string{"X"}, IPAddress: "1.2.3.4"})
 
 	require.Len(t, ok.events, 1)
 }
@@ -71,8 +71,8 @@ func TestFileObserver_Notify(t *testing.T) {
 	defer obs.Close()
 
 	events := []AuditEvent{
-		{Ts: 111, Metrics: []string{"Alloc", "Frees"}, IPAddress: "192.168.0.1"},
-		{Ts: 222, Metrics: []string{"HeapAlloc"}, IPAddress: "10.0.0.1"},
+		{TS: 111, Metrics: []string{"Alloc", "Frees"}, IPAddress: "192.168.0.1"},
+		{TS: 222, Metrics: []string{"HeapAlloc"}, IPAddress: "10.0.0.1"},
 	}
 
 	for _, e := range events {
@@ -109,7 +109,7 @@ func TestHTTPObserver_Notify_Success(t *testing.T) {
 	defer srv.Close()
 
 	obs := NewHTTPObserver(srv.URL)
-	event := AuditEvent{Ts: 999, Metrics: []string{"PollCount"}, IPAddress: "172.16.0.1"}
+	event := AuditEvent{TS: 999, Metrics: []string{"PollCount"}, IPAddress: "172.16.0.1"}
 	err := obs.Notify(context.Background(), event)
 
 	require.NoError(t, err)
