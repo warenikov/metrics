@@ -249,6 +249,34 @@ func TestMetricsService_PingDB(t *testing.T) {
 	}
 }
 
+func TestMetricsService_GetListMetrics(t *testing.T) {
+	repo := repository.NewMemStorage()
+	svc := NewMetricsService(repo, nil)
+
+	t.Run("пустое хранилище", func(t *testing.T) {
+		list, err := svc.GetListMetrics(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(list) != 0 {
+			t.Errorf("expected empty list, got %d items", len(list))
+		}
+	})
+
+	t.Run("возвращает все метрики", func(t *testing.T) {
+		v := 1.5
+		_, _ = repo.UpdateGauges(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &v})
+
+		list, err := svc.GetListMetrics(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(list) < 1 {
+			t.Errorf("expected at least 1 metric, got %d", len(list))
+		}
+	})
+}
+
 func TestMetricsService_UpdateBatch(t *testing.T) {
 	floatPtr := func(v float64) *float64 { return &v }
 	intPtr := func(v int64) *int64 { return &v }

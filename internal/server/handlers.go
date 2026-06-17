@@ -12,8 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 	"metrics/internal/audit"
-	models "metrics/internal/model"
 	"metrics/internal/logger"
+	models "metrics/internal/model"
 	"metrics/internal/service"
 )
 

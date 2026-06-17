@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	models "metrics/internal/model"
 	"metrics/internal/audit"
 	"metrics/internal/config"
 	"metrics/internal/logger"
 	"metrics/internal/middleware"
+	models "metrics/internal/model"
 )
 
 const (
