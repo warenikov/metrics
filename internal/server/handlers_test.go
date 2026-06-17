@@ -12,10 +12,21 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"metrics/internal/audit"
 	models "metrics/internal/model"
 	"metrics/internal/repository"
 	"metrics/internal/service"
 )
+
+// captureObserver захватывает события аудита для проверки в тестах.
+type captureObserver struct {
+	events []audit.AuditEvent
+}
+
+func (o *captureObserver) Notify(_ context.Context, event audit.AuditEvent) error {
+	o.events = append(o.events, event)
+	return nil
+}
 
 // mockUpdater реализует MetricsUpdater для изолированного тестирования.
 type mockUpdater struct {
@@ -362,4 +373,125 @@ func TestHandler_PingDB(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, w.Code)
 		})
 	}
+}
+
+func TestEmitAudit_IPFromRemoteAddr(t *testing.T) {
+	cap := &captureObserver{}
+	h := &httpAdapter{broker: audit.NewBroker(cap)}
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.RemoteAddr = "1.2.3.4:5678"
+	h.emitAudit(req, []string{"Alloc"})
+
+	require.Len(t, cap.events, 1)
+	assert.Equal(t, "1.2.3.4", cap.events[0].IPAddress)
+	assert.Equal(t, []string{"Alloc"}, cap.events[0].Metrics)
+}
+
+func TestEmitAudit_XRealIPOverridesRemoteAddr(t *testing.T) {
+	cap := &captureObserver{}
+	h := &httpAdapter{broker: audit.NewBroker(cap)}
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.RemoteAddr = "127.0.0.1:9999"
+	req.Header.Set("X-Real-IP", "203.0.113.42")
+	h.emitAudit(req, []string{"Frees"})
+
+	require.Len(t, cap.events, 1)
+	assert.Equal(t, "203.0.113.42", cap.events[0].IPAddress)
+}
+
+func TestEmitAudit_NilBrokerNoPanic(t *testing.T) {
+	h := &httpAdapter{broker: nil}
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	assert.NotPanics(t, func() { h.emitAudit(req, []string{"X"}) })
+}
+
+func TestHandler_Update_EmitsAudit(t *testing.T) {
+	repo := repository.NewMemStorage()
+	svc := service.NewMetricsService(repo, nil)
+	cap := &captureObserver{}
+	h := &httpAdapter{updater: svc, getter: svc, health: svc, broker: audit.NewBroker(cap)}
+
+	r := chi.NewRouter()
+	r.Post("/update/{type}/{name}/{value}", h.update)
+
+	req := httptest.NewRequest(http.MethodPost, "/update/gauge/Alloc/1.5", nil)
+	req.RemoteAddr = "10.0.0.1:1234"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, cap.events, 1)
+	assert.Equal(t, []string{"Alloc"}, cap.events[0].Metrics)
+	assert.Equal(t, "10.0.0.1", cap.events[0].IPAddress)
+}
+
+func TestHandler_UpdateJSON_EmitsAudit(t *testing.T) {
+	repo := repository.NewMemStorage()
+	svc := service.NewMetricsService(repo, nil)
+	cap := &captureObserver{}
+	h := &httpAdapter{updater: svc, getter: svc, health: svc, broker: audit.NewBroker(cap)}
+
+	r := chi.NewRouter()
+	r.Post("/update/", h.updateJSON)
+
+	body := `{"id":"PollCount","type":"counter","delta":3}`
+	req := httptest.NewRequest(http.MethodPost, "/update/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "192.168.1.1:8080"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, cap.events, 1)
+	assert.Equal(t, []string{"PollCount"}, cap.events[0].Metrics)
+}
+
+func TestHandler_UpdateBatch_EmitsAuditWithAllNames(t *testing.T) {
+	float64Ptr := func(v float64) *float64 { return &v }
+	int64Ptr := func(v int64) *int64 { return &v }
+
+	repo := repository.NewMemStorage()
+	svc := service.NewMetricsService(repo, nil)
+	cap := &captureObserver{}
+	h := &httpAdapter{updater: svc, getter: svc, health: svc, broker: audit.NewBroker(cap)}
+
+	r := chi.NewRouter()
+	r.Post("/updates/", h.updateBatch)
+
+	batch := []models.Metrics{
+		{ID: "Alloc", MType: models.Gauge, Value: float64Ptr(1.0)},
+		{ID: "PollCount", MType: models.Counter, Delta: int64Ptr(1)},
+	}
+	data, _ := json.Marshal(batch)
+	req := httptest.NewRequest(http.MethodPost, "/updates/", strings.NewReader(string(data)))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "172.16.0.2:4321"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, cap.events, 1)
+	assert.ElementsMatch(t, []string{"Alloc", "PollCount"}, cap.events[0].Metrics)
+}
+
+func TestHandler_Update_NoAuditOnError(t *testing.T) {
+	cap := &captureObserver{}
+	h := &httpAdapter{
+		updater: &mockUpdater{parseAndSaveErr: service.ErrInvalidValue},
+		getter:  &mockGetter{},
+		health:  &mockHealth{},
+		broker:  audit.NewBroker(cap),
+	}
+
+	r := chi.NewRouter()
+	r.Post("/update/{type}/{name}/{value}", h.update)
+
+	req := httptest.NewRequest(http.MethodPost, "/update/gauge/Alloc/bad", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Empty(t, cap.events)
 }
