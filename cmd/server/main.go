@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"metrics/internal/audit"
 	"metrics/internal/config"
 	"metrics/internal/config/db"
 	"metrics/internal/logger"
@@ -65,7 +66,27 @@ func main() {
 	}
 
 	svc := service.NewMetricsService(repo, pgxDB)
-	srv := server.New(cfg, svc, svc, svc)
+
+	var auditObservers []audit.Observer
+	var fileObserver *audit.FileObserver
+	if cfg.AuditFile != "" {
+		fo, foErr := audit.NewFileObserver(cfg.AuditFile)
+		if foErr != nil {
+			logger.Log.Fatal("Failed to open audit file", zap.Error(foErr))
+		}
+		fileObserver = fo
+		auditObservers = append(auditObservers, fo)
+	}
+	if cfg.AuditURL != "" {
+		auditObservers = append(auditObservers, audit.NewHTTPObserver(cfg.AuditURL))
+	}
+	var broker *audit.Broker
+	if len(auditObservers) > 0 {
+		broker = audit.NewBroker(auditObservers...)
+		logger.Log.Info("Audit enabled", zap.Int("sinks", len(auditObservers)))
+	}
+
+	srv := server.New(cfg, svc, svc, svc, broker)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -90,6 +111,11 @@ func main() {
 		}
 		if err := fileRepo.Close(); err != nil {
 			logger.Log.Error("Failed to close repository", zap.Error(err))
+		}
+	}
+	if fileObserver != nil {
+		if err := fileObserver.Close(); err != nil {
+			logger.Log.Error("Failed to close audit file", zap.Error(err))
 		}
 	}
 }

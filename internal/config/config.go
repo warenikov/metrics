@@ -18,6 +18,8 @@ type Config struct {
 	DBDSN           string `env:"DATABASE_DSN"`
 	Key             string `env:"KEY"`
 	RateLimit       int    `env:"RATE_LIMIT"`
+	AuditFile       string `env:"AUDIT_FILE"`
+	AuditURL        string `env:"AUDIT_URL"`
 }
 
 func LoadServerConfig() (*Config, error) {
@@ -43,6 +45,8 @@ func LoadServerConfig() (*Config, error) {
 	fs.UintVar(&cfg.StoreInterval, "i", cfg.StoreInterval, "Store interval in seconds")
 	fs.StringVar(&cfg.DBDSN, "d", cfg.DBDSN, "Database DNS string")
 	fs.StringVar(&cfg.Key, "k", cfg.Key, "Key for signing")
+	fs.StringVar(&cfg.AuditFile, "audit-file", cfg.AuditFile, "Audit log file path")
+	fs.StringVar(&cfg.AuditURL, "audit-url", cfg.AuditURL, "Audit log remote URL")
 	if err := fs.Parse(flagArgs()); err != nil {
 		return nil, fmt.Errorf("invalid flag: %w", err)
 	}

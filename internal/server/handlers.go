@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"html/template"
+	"net"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
+	"metrics/internal/audit"
 	models "metrics/internal/model"
 	"metrics/internal/logger"
 	"metrics/internal/service"
@@ -36,6 +39,25 @@ type httpAdapter struct {
 	updater MetricsUpdater
 	getter  MetricsGetter
 	health  HealthChecker
+	broker  *audit.Broker
+}
+
+func (h *httpAdapter) emitAudit(r *http.Request, names []string) {
+	if h.broker == nil {
+		return
+	}
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+		ip = realIP
+	}
+	h.broker.Emit(r.Context(), audit.AuditEvent{
+		Ts:        time.Now().Unix(),
+		Metrics:   names,
+		IPAddress: ip,
+	})
 }
 
 func (h *httpAdapter) update(w http.ResponseWriter, r *http.Request) {
@@ -53,6 +75,7 @@ func (h *httpAdapter) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.emitAudit(r, []string{mName})
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -87,6 +110,7 @@ func (h *httpAdapter) updateJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.emitAudit(r, []string{metrica.ID})
 	m, err := h.getter.GetMetrica(r.Context(), metrica.MType, metrica.ID)
 	if err != nil {
 		writeError(err, w)
@@ -178,6 +202,12 @@ func (h *httpAdapter) updateBatch(w http.ResponseWriter, r *http.Request) {
 		writeError(err, w)
 		return
 	}
+
+	names := make([]string, len(metrics))
+	for i, m := range metrics {
+		names[i] = m.ID
+	}
+	h.emitAudit(r, names)
 	w.WriteHeader(http.StatusOK)
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	models "metrics/internal/model"
+	"metrics/internal/audit"
 	"metrics/internal/config"
 	"metrics/internal/logger"
 	"metrics/internal/middleware"
@@ -37,14 +38,14 @@ type Server struct {
 	httpServer *http.Server
 }
 
-func New(cfg *config.Config, updater MetricsUpdater, getter MetricsGetter, health HealthChecker) *Server {
+func New(cfg *config.Config, updater MetricsUpdater, getter MetricsGetter, health HealthChecker, broker *audit.Broker) *Server {
 	r := chi.NewRouter()
 
 	r.Use(middleware.LoggerMiddleware)
 	r.Use(middleware.GzipMiddleware)
 	r.Use(middleware.HashMiddleware(cfg.Key))
 
-	h := &httpAdapter{updater: updater, getter: getter, health: health}
+	h := &httpAdapter{updater: updater, getter: getter, health: health, broker: broker}
 
 	r.Post("/update/{type}/{name}/{value}", h.update)
 	r.Post("/update/", h.updateJSON)
