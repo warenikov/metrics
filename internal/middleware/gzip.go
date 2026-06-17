@@ -3,13 +3,22 @@ package middleware
 import (
 	"compress/gzip"
 	"io"
-	"metrics/internal/logger"
-	"metrics/pkg/compress"
 	"net/http"
 	"strings"
+	"sync"
 
 	"go.uber.org/zap"
+	"metrics/internal/logger"
+	"metrics/pkg/compress"
 )
+
+// gzipWriterPool переиспользует gzip.Writer между запросами, избегая дорогой аллокации буферов.
+var gzipWriterPool = sync.Pool{
+	New: func() any {
+		w, _ := gzip.NewWriterLevel(io.Discard, gzip.DefaultCompression)
+		return w
+	},
+}
 
 type gzipResponseWriter struct {
 	http.ResponseWriter
@@ -53,17 +62,19 @@ func GzipMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		gzWriter := gzip.NewWriter(w)
+		gz := gzipWriterPool.Get().(*gzip.Writer)
+		gz.Reset(w)
 
 		gzw := &gzipResponseWriter{
 			ResponseWriter: w,
-			Writer:         gzWriter,
+			Writer:         gz,
 		}
 
 		next.ServeHTTP(gzw, r)
 
 		if gzw.written {
-			gzWriter.Close()
+			gz.Close()
 		}
+		gzipWriterPool.Put(gz)
 	})
 }
