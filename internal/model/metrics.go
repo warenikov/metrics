@@ -1,14 +1,19 @@
+// Package models defines the core data types for the metrics server.
 package models
 
 import (
 	"strconv"
 )
 
+// Metric type identifiers used in API requests and storage.
 const (
+	// Counter is an additive metric type whose value increases monotonically.
 	Counter = "counter"
-	Gauge   = "gauge"
+	// Gauge is a metric type that represents an instantaneous measurement.
+	Gauge = "gauge"
 )
 
+// GaugeMertics holds all runtime and system gauge metric values collected by the agent.
 type GaugeMertics struct {
 	Alloc         float64 `json:"alloc"`
 	BuckHashSys   float64 `json:"buck_hash_sys"`
@@ -42,15 +47,16 @@ type GaugeMertics struct {
 	FreeMemory    float64 `json:"free_memory"`
 }
 
+// CounterMertics holds counter metric values collected by the agent.
 type CounterMertics struct {
 	PollCount int64 `json:"poll_count"`
 }
 
-// NOTE: Не усложняем пример, вводя иерархическую вложенность структур.
-// Органичиваясь плоской моделью.
-// Delta и Value объявлены через указатели,
-// что бы отличать значение "0", от не заданного значения
-// и соответственно не кодировать в структуру.
+// Metrics is the unified representation of a single metric used in the HTTP API.
+//
+// Delta and Value are pointers to distinguish a zero value from an absent value
+// during JSON serialisation (omitempty). Use MType to determine which field is
+// meaningful: [Counter] metrics carry Delta, [Gauge] metrics carry Value.
 type Metrics struct {
 	ID    string   `json:"id"`
 	MType string   `json:"type"`
@@ -59,13 +65,15 @@ type Metrics struct {
 	Hash  string   `json:"hash,omitempty"`
 }
 
+// ValueString returns the metric value as a human-readable string.
+// For gauge metrics it formats the float64; for counter metrics the int64.
+// Returns an empty string for unknown metric types and "0" when the value pointer is nil.
 func (m Metrics) ValueString() string {
 	switch m.MType {
 	case "gauge":
 		if m.Value == nil {
 			return "0"
 		}
-
 		return strconv.FormatFloat(*m.Value, 'f', -1, 64)
 	case "counter":
 		if m.Delta == nil {
