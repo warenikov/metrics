@@ -36,6 +36,7 @@ func TestBroker_Emit_AllObserversCalled(t *testing.T) {
 
 	event := AuditEvent{TS: 1000, Metrics: []string{"Alloc"}, IPAddress: "127.0.0.1"}
 	broker.Emit(context.Background(), event)
+	broker.Close()
 
 	require.Len(t, obs1.events, 1)
 	require.Len(t, obs2.events, 1)
@@ -49,6 +50,7 @@ func TestBroker_Emit_FailingObserverDoesNotStopOthers(t *testing.T) {
 	broker := NewBroker(failing, ok)
 
 	broker.Emit(context.Background(), AuditEvent{TS: 1, Metrics: []string{"X"}, IPAddress: "1.2.3.4"})
+	broker.Close()
 
 	require.Len(t, ok.events, 1)
 }
@@ -58,6 +60,7 @@ func TestBroker_Emit_NoObservers(t *testing.T) {
 	assert.NotPanics(t, func() {
 		broker.Emit(context.Background(), AuditEvent{})
 	})
+	broker.Close()
 }
 
 func TestFileObserver_Notify(t *testing.T) {

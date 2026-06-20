@@ -113,6 +113,9 @@ func main() {
 			logger.Log.Error("Failed to close repository", zap.Error(err))
 		}
 	}
+	if broker != nil {
+		broker.Close()
+	}
 	if fileObserver != nil {
 		if err := fileObserver.Close(); err != nil {
 			logger.Log.Error("Failed to close audit file", zap.Error(err))

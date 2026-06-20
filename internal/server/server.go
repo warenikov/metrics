@@ -57,7 +57,9 @@ func New(cfg *config.Config, updater MetricsUpdater, getter MetricsGetter, healt
 
 	r.Use(middleware.LoggerMiddleware)
 	r.Use(middleware.GzipMiddleware)
-	r.Use(middleware.HashMiddleware(cfg.Key))
+	if cfg.Key != "" {
+		r.Use(middleware.HashMiddleware(cfg.Key))
+	}
 
 	h := &httpAdapter{updater: updater, getter: getter, health: health, broker: broker}
 

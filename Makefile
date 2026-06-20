@@ -6,7 +6,6 @@ FILE_STORAGE=storage.txt
 
 # Номер инкретемента для тестов через бинарник (можно переопределить: make test_ya NUM=7)
 NUM ?= 1
-make test_ya NUM=12 DATABASE_DSN="postgres://userusernamename:password@localhost:5432/dbname?sslmode=disable" ?=
 
 # Пути к исходникам
 SERVER_SRC=./cmd/server

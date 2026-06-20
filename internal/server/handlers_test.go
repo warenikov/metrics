@@ -382,6 +382,7 @@ func TestEmitAudit_IPFromRemoteAddr(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	req.RemoteAddr = "1.2.3.4:5678"
 	h.emitAudit(req, []string{"Alloc"})
+	h.broker.Close()
 
 	require.Len(t, cap.events, 1)
 	assert.Equal(t, "1.2.3.4", cap.events[0].IPAddress)
@@ -396,6 +397,7 @@ func TestEmitAudit_XRealIPOverridesRemoteAddr(t *testing.T) {
 	req.RemoteAddr = "127.0.0.1:9999"
 	req.Header.Set("X-Real-IP", "203.0.113.42")
 	h.emitAudit(req, []string{"Frees"})
+	h.broker.Close()
 
 	require.Len(t, cap.events, 1)
 	assert.Equal(t, "203.0.113.42", cap.events[0].IPAddress)
@@ -422,6 +424,7 @@ func TestHandler_Update_EmitsAudit(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	h.broker.Close()
 	require.Len(t, cap.events, 1)
 	assert.Equal(t, []string{"Alloc"}, cap.events[0].Metrics)
 	assert.Equal(t, "10.0.0.1", cap.events[0].IPAddress)
@@ -444,6 +447,7 @@ func TestHandler_UpdateJSON_EmitsAudit(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	h.broker.Close()
 	require.Len(t, cap.events, 1)
 	assert.Equal(t, []string{"PollCount"}, cap.events[0].Metrics)
 }
@@ -472,6 +476,7 @@ func TestHandler_UpdateBatch_EmitsAuditWithAllNames(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	h.broker.Close()
 	require.Len(t, cap.events, 1)
 	assert.ElementsMatch(t, []string{"Alloc", "PollCount"}, cap.events[0].Metrics)
 }
@@ -493,5 +498,6 @@ func TestHandler_Update_NoAuditOnError(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+	h.broker.Close()
 	assert.Empty(t, cap.events)
 }
