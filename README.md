@@ -43,6 +43,51 @@ git fetch template && git checkout template/v2 .github
 - **Hexagonal Architecture**
 - **Layered Architecture**
 
+## Оптимизация производительности (iter17)
+
+### Профилирование памяти
+
+Профилирование выполнялось командой:
+```bash
+make bench_base    # снимок до оптимизации → profiles/base.pprof
+make bench_result  # снимок после          → profiles/result.pprof
+make bench_diff    # сравнение через pprof -diff_base
+```
+
+### Найденный узкий момент
+
+Анализ `base.pprof` показал, что `compress/flate.NewWriter` аллоцировал **47% всей памяти**:
+
+```
+BenchmarkGzipMiddleware_WithGzip   821 KB/op   ~900 allocs/op
+```
+
+Каждый запрос с `Accept-Encoding: gzip` создавал новый `*gzip.Writer` через `gzip.NewWriterLevel`, что приводило к массовому выделению памяти.
+
+### Применённая оптимизация
+
+Добавлен `sync.Pool` для переиспользования `*gzip.Writer` (`internal/middleware/gzip.go`):
+
+```go
+var gzipWriterPool = sync.Pool{
+    New: func() any {
+        w, _ := gzip.NewWriterLevel(io.Discard, gzip.DefaultCompression)
+        return w
+    },
+}
+```
+
+При обработке запроса `gz` берётся из пула через `Get()`, сбрасывается через `gz.Reset(w)` и возвращается в пул через `Put(gz)` после использования.
+
+### Результат
+
+| Метрика | До | После | Изменение |
+|---|---|---|---|
+| Память/запрос | 821 KB/op | 7.5 KB/op | −99% |
+| Аллокаций/запрос | ~900 | ~10 | −99% |
+
+Оптимизация в `loggingResponseWriter` (`internal/middleware/logger.go`): убрана лишняя heap-аллокация за счёт встраивания полей `status` и `size` напрямую в структуру вместо указателей.
+
 локальная разработка БД postgres:
 - Host: localhost:5432
 - DB: dbname, User: username, Password: password

@@ -1,6 +1,10 @@
 package agent
 
 import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,10 +16,15 @@ import (
 	"metrics/pkg/compress"
 	"net"
 	"net/http"
+	"os"
 	"reflect"
 	"runtime"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 	"go.uber.org/zap"
 )
 
@@ -25,78 +34,152 @@ var (
 
 var agentRetryDelays = []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 
+func computeHMAC(body []byte, key string) string {
+	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
 func isRetryableNetworkError(err error) bool {
 	var netErr net.Error
 	return errors.As(err, &netErr)
 }
 
-type GaugeMertics struct {
-	Alloc         float64 `json:"alloc"`
-	BuckHashSys   float64 `json:"buck_hash_sys"`
-	Frees         float64 `json:"frees"`
-	GCCPUFraction float64 `json:"gc_cpu_fraction"`
-	GCSys         float64 `json:"gc_sys"`
-	HeapAlloc     float64 `json:"heap_alloc"`
-	HeapIdle      float64 `json:"heap_idle"`
-	HeapInuse     float64 `json:"heap_inuse"`
-	HeapObjects   float64 `json:"heap_objects"`
-	HeapReleased  float64 `json:"heap_released"`
-	HeapSys       float64 `json:"heap_sys"`
-	LastGC        float64 `json:"last_gc"`
-	Lookups       float64 `json:"lookups"`
-	MCacheInuse   float64 `json:"mcache_inuse"`
-	MCacheSys     float64 `json:"mcache_sys"`
-	MSpanInuse    float64 `json:"mspan_inuse"`
-	MSpanSys      float64 `json:"mspan_sys"`
-	Mallocs       float64 `json:"mallocs"`
-	NextGC        float64 `json:"next_gc"`
-	NumForcedGC   float64 `json:"num_forced_gc"`
-	NumGC         float64 `json:"num_gc"`
-	OtherSys      float64 `json:"other_sys"`
-	PauseTotalNs  float64 `json:"pause_total_ns"`
-	StackInuse    float64 `json:"stack_inuse"`
-	StackSys      float64 `json:"stack_sys"`
-	Sys           float64 `json:"sys"`
-	TotalAlloc    float64 `json:"total_alloc"`
-	RandomValue   float64 `json:"random_value"`
-}
-
-type CounterMertics struct {
-	PollCount int64 `json:"poll_count"`
-}
-
 type MetricaAgent struct {
-	ms           *runtime.MemStats
-	gauges       *GaugeMertics
-	counters     *CounterMertics
-	pollInterval time.Duration
-	sendInterval time.Duration
-	serverAddr   string
+	mu             sync.RWMutex
+	ms             *runtime.MemStats
+	gauges         *models.GaugeMertics
+	counters       *models.CounterMertics
+	cpuUtilization []float64
+	pollInterval   time.Duration
+	sendInterval   time.Duration
+	serverAddr     string
+	key            string
+	rateLimit      int
+}
+
+func resolveKey(key string) string {
+	if strings.HasPrefix(key, "/") {
+		if _, err := os.Stat(key); err != nil {
+			return ""
+		}
+	}
+	return key
 }
 
 func NewMetricaAgent(cfg *config.Config) *MetricaAgent {
 	srv := fmt.Sprintf("http://%s", cfg.ServerAddr)
 	return &MetricaAgent{
 		ms:           &runtime.MemStats{},
-		gauges:       &GaugeMertics{},
-		counters:     &CounterMertics{},
+		gauges:       &models.GaugeMertics{},
+		counters:     &models.CounterMertics{},
 		pollInterval: time.Duration(cfg.PollInterval) * time.Second,
 		sendInterval: time.Duration(cfg.ReportInterval) * time.Second,
 		serverAddr:   srv,
+		key:          resolveKey(cfg.Key),
+		rateLimit:    cfg.RateLimit,
 	}
 }
 
-func (m *MetricaAgent) Run() {
-	var timePassed time.Duration
+func (m *MetricaAgent) Run(ctx context.Context) {
+	rateLimit := m.rateLimit
+	if rateLimit <= 0 {
+		rateLimit = 1
+	}
+
+	jobs := make(chan []models.Metrics, rateLimit)
+
+	var wg sync.WaitGroup
+	for i := 0; i < rateLimit; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.worker(jobs)
+		}()
+	}
+
+	go m.pollRuntime(ctx)
+	go m.pollGopsutil(ctx)
+	m.sender(ctx, jobs)
+
+	close(jobs)
+	wg.Wait()
+}
+
+func (m *MetricaAgent) pollRuntime(ctx context.Context) {
+	ticker := time.NewTicker(m.pollInterval)
+	defer ticker.Stop()
 	for {
-		_ = m.Poll()
-		timePassed += m.pollInterval
-		if timePassed >= m.sendInterval {
-			m.SendBatch()
-			m.counters.PollCount = 0 //обнуляем каунтер после отправки
-			timePassed = 0
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.mu.Lock()
+			runtime.ReadMemStats(m.ms)
+			m.collectMerticsManual()
+			m.mu.Unlock()
 		}
-		time.Sleep(m.pollInterval)
+	}
+}
+
+func (m *MetricaAgent) pollGopsutil(ctx context.Context) {
+	ticker := time.NewTicker(m.pollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			vm, memErr := mem.VirtualMemory()
+			cpuPercents, cpuErr := cpu.Percent(0, true)
+
+			m.mu.Lock()
+			if memErr == nil {
+				m.gauges.TotalMemory = float64(vm.Total)
+				m.gauges.FreeMemory = float64(vm.Free)
+			} else {
+				logger.Log.Error("gopsutil mem error", zap.Error(memErr))
+			}
+			if cpuErr == nil {
+				m.cpuUtilization = cpuPercents
+			} else {
+				logger.Log.Error("gopsutil cpu error", zap.Error(cpuErr))
+			}
+			m.mu.Unlock()
+		}
+	}
+}
+
+func (m *MetricaAgent) sender(ctx context.Context, jobs chan<- []models.Metrics) {
+	ticker := time.NewTicker(m.sendInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.mu.Lock()
+			batch := m.collectBatch()
+			m.counters.PollCount = 0
+			m.mu.Unlock()
+
+			select {
+			case jobs <- batch:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
+func (m *MetricaAgent) worker(jobs <-chan []models.Metrics) {
+	for batch := range jobs {
+		data, err := json.Marshal(batch)
+		if err != nil {
+			logger.Log.Error("failed to marshal batch", zap.Error(err))
+			continue
+		}
+		m.postBatchRequest(data)
 	}
 }
 
@@ -235,6 +318,13 @@ func (m *MetricaAgent) collectBatch() []models.Metrics {
 		gaugeVal("TotalAlloc", g.TotalAlloc),
 		gaugeVal("RandomValue", g.RandomValue),
 	}
+	batch = append(batch,
+		gaugeVal("TotalMemory", g.TotalMemory),
+		gaugeVal("FreeMemory", g.FreeMemory),
+	)
+	for i, v := range m.cpuUtilization {
+		batch = append(batch, gaugeVal(fmt.Sprintf("CPUutilization%d", i+1), v))
+	}
 	delta := m.counters.PollCount
 	batch = append(batch, models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &delta})
 	return batch
@@ -253,20 +343,23 @@ func (m *MetricaAgent) SendBatch() {
 
 func (m *MetricaAgent) postBatchRequest(data []byte) {
 	var lastErr error
-	client := &http.Client{}
+	client := &http.Client{Timeout: 30 * time.Second}
 
 	doRequest := func() error {
 		compressedData, err := compress.Compress(data)
 		if err != nil {
 			return err
 		}
-		req, err := http.NewRequest("POST", m.serverAddr+"/updates/", compressedData)
+		req, err := http.NewRequest(http.MethodPost, m.serverAddr+"/updates/", compressedData)
 		if err != nil {
 			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
+		if m.key != "" {
+			req.Header.Set("HashSHA256", computeHMAC(data, m.key))
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -322,20 +415,23 @@ func (m *MetricaAgent) sendCounter(name string, value int64) {
 
 func (m *MetricaAgent) postRequest(data []byte, name string) {
 	var lastErr error
-	client := &http.Client{}
+	client := &http.Client{Timeout: 30 * time.Second}
 
 	doRequest := func() error {
 		compressedData, err := compress.Compress(data)
 		if err != nil {
 			return err
 		}
-		req, err := http.NewRequest("POST", m.serverAddr+"/update/", compressedData)
+		req, err := http.NewRequest(http.MethodPost, m.serverAddr+"/update/", compressedData)
 		if err != nil {
 			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
+		if m.key != "" {
+			req.Header.Set("HashSHA256", computeHMAC(data, m.key))
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {

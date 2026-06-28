@@ -1,18 +1,20 @@
-package handler
+package server
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"html/template"
-	"metrics/internal/logger"
-	models "metrics/internal/model"
-	"metrics/internal/service"
+	"net"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
+	"metrics/internal/audit"
+	"metrics/internal/logger"
+	models "metrics/internal/model"
+	"metrics/internal/service"
 )
 
 const metricsTemplate = `
@@ -33,39 +35,32 @@ const metricsTemplate = `
 
 var tmpl = template.Must(template.New("metrics").Parse(metricsTemplate))
 
-type Service interface {
-	ParseAndSave(ctx context.Context, mType, id, value string) (models.Metrics, error)
-	GetMetrica(ctx context.Context, mType, id string) (*models.Metrics, error)
-	GetListMetrics(ctx context.Context) ([]models.Metrics, error)
-	UpdateBatch(ctx context.Context, metrics []models.Metrics) error
-	PingDB() error
+type httpAdapter struct {
+	updater MetricsUpdater
+	getter  MetricsGetter
+	health  HealthChecker
+	broker  *audit.Broker
 }
 
-type Handler struct {
-	svc Service
-}
-
-func NewHandler(svc Service) *Handler {
-	return &Handler{svc: svc}
-}
-
-func (h *Handler) GetMetricsList(w http.ResponseWriter, r *http.Request) {
-	metrics, err := h.svc.GetListMetrics(r.Context())
+func (h *httpAdapter) emitAudit(r *http.Request, names []string) {
+	if h.broker == nil {
+		return
+	}
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		logger.Log.Error("Can't get metrics", zap.Error(err))
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
+		ip = r.RemoteAddr
 	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err = tmpl.Execute(w, metrics); err != nil {
-		logger.Log.Error("Can't execute template", zap.Error(err))
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
+	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+		ip = realIP
 	}
+	h.broker.Emit(r.Context(), audit.AuditEvent{
+		TS:        time.Now().Unix(),
+		Metrics:   names,
+		IPAddress: ip,
+	})
 }
 
-func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+func (h *httpAdapter) update(w http.ResponseWriter, r *http.Request) {
 	mType := chi.URLParam(r, "type")
 	mName := chi.URLParam(r, "name")
 	mValue := chi.URLParam(r, "value")
@@ -75,20 +70,19 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := h.svc.ParseAndSave(r.Context(), mType, mName, mValue)
-	if err != nil {
-		h.errorProcess(err, w)
+	if _, err := h.updater.ParseAndSave(r.Context(), mType, mName, mValue); err != nil {
+		writeError(err, w)
 		return
 	}
 
+	h.emitAudit(r, []string{mName})
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) UpdateJSON(w http.ResponseWriter, r *http.Request) {
+func (h *httpAdapter) updateJSON(w http.ResponseWriter, r *http.Request) {
 	var metrica models.Metrics
 
-	err := json.NewDecoder(r.Body).Decode(&metrica)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&metrica); err != nil {
 		logger.Log.Debug("Failed to decode JSON", zap.Error(err))
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
@@ -99,7 +93,6 @@ func (h *Handler) UpdateJSON(w http.ResponseWriter, r *http.Request) {
 	if metrica.Delta != nil {
 		deltaVal = strconv.FormatInt(int64(*metrica.Delta), 10)
 	}
-
 	valueVal := "nil"
 	if metrica.Value != nil {
 		valueVal = strconv.FormatFloat(*metrica.Value, 'f', -1, 64)
@@ -109,25 +102,23 @@ func (h *Handler) UpdateJSON(w http.ResponseWriter, r *http.Request) {
 		zap.String("Type", metrica.MType),
 		zap.String("Delta", deltaVal),
 		zap.String("Value", valueVal),
-		zap.Error(err),
 	)
 
 	valStr := metrica.ValueString()
-	_, err = h.svc.ParseAndSave(r.Context(), metrica.MType, metrica.ID, valStr)
+	if _, err := h.updater.ParseAndSave(r.Context(), metrica.MType, metrica.ID, valStr); err != nil {
+		writeError(err, w)
+		return
+	}
+
+	h.emitAudit(r, []string{metrica.ID})
+	m, err := h.getter.GetMetrica(r.Context(), metrica.MType, metrica.ID)
 	if err != nil {
-		h.errorProcess(err, w)
+		writeError(err, w)
 		return
 	}
 
-	m, e := h.svc.GetMetrica(r.Context(), metrica.MType, metrica.ID)
-	if e != nil {
-		h.errorProcess(e, w)
-		return
-	}
-
-	resp, e := json.Marshal(m)
-
-	if e != nil {
+	resp, err := json.Marshal(m)
+	if err != nil {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
@@ -135,14 +126,12 @@ func (h *Handler) UpdateJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp)
-
 }
 
-func (h *Handler) GetMetricaJSON(w http.ResponseWriter, r *http.Request) {
+func (h *httpAdapter) getMetricaJSON(w http.ResponseWriter, r *http.Request) {
 	var metrica models.Metrics
 
-	err := json.NewDecoder(r.Body).Decode(&metrica)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&metrica); err != nil {
 		logger.Log.Debug("GetMetricaJson: Decode error", zap.Error(err))
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
@@ -153,48 +142,30 @@ func (h *Handler) GetMetricaJSON(w http.ResponseWriter, r *http.Request) {
 		zap.String("ID", metrica.ID),
 		zap.String("Type", metrica.MType),
 	)
-	foundMetrica, err := h.svc.GetMetrica(r.Context(), metrica.MType, metrica.ID)
+
+	found, err := h.getter.GetMetrica(r.Context(), metrica.MType, metrica.ID)
 	if err != nil {
 		logger.Log.Debug("GetMetricaJson error",
 			zap.String("Metrica name", metrica.ID),
 			zap.Error(err),
 		)
-		h.errorProcess(err, w)
+		writeError(err, w)
 		return
 	}
 
-	dVal, vVal := "nil", "nil"
-	if foundMetrica.Delta != nil {
-		dVal = strconv.FormatInt(*foundMetrica.Delta, 10)
-	}
-	if foundMetrica.Value != nil {
-		vVal = strconv.FormatFloat(*foundMetrica.Value, 'f', -1, 64)
-	}
-
-	logger.Log.Debug("GetMetricaJson: Found in storage: ",
-		zap.String("ID", foundMetrica.ID),
-		zap.String("delta", dVal),
-		zap.String("val", vVal),
-	)
-
-	resp, err := json.Marshal(foundMetrica)
+	resp, err := json.Marshal(found)
 	if err != nil {
-		logger.Log.Debug("GetMetricaJson: Marshal error",
-			zap.Error(err))
+		logger.Log.Debug("GetMetricaJson: Marshal error", zap.Error(err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-
-	logger.Log.Debug("GetMetricaJson: Sending JSON",
-		zap.String("Json", string(resp)),
-	)
 
 	w.Header().Set("Content-Type", models.ContentTypeJSON)
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp)
 }
 
-func (h *Handler) GetMetrica(w http.ResponseWriter, r *http.Request) {
+func (h *httpAdapter) getMetrica(w http.ResponseWriter, r *http.Request) {
 	mType := chi.URLParam(r, "type")
 	mName := chi.URLParam(r, "name")
 
@@ -203,22 +174,18 @@ func (h *Handler) GetMetrica(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mm, err := h.svc.GetMetrica(r.Context(), mType, mName)
-
+	mm, err := h.getter.GetMetrica(r.Context(), mType, mName)
 	if err != nil {
-		h.errorProcess(err, w)
+		writeError(err, w)
 		return
 	}
 
-	result := mm.ValueString()
-
 	w.Header().Set("Content-Type", models.ContentTypeText)
-
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(result))
+	w.Write([]byte(mm.ValueString()))
 }
 
-func (h *Handler) UpdateBatch(w http.ResponseWriter, r *http.Request) {
+func (h *httpAdapter) updateBatch(w http.ResponseWriter, r *http.Request) {
 	var metrics []models.Metrics
 	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
@@ -231,17 +198,37 @@ func (h *Handler) UpdateBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.svc.UpdateBatch(r.Context(), metrics); err != nil {
-		h.errorProcess(err, w)
+	if err := h.updater.UpdateBatch(r.Context(), metrics); err != nil {
+		writeError(err, w)
 		return
 	}
+
+	names := make([]string, len(metrics))
+	for i, m := range metrics {
+		names[i] = m.ID
+	}
+	h.emitAudit(r, names)
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) PingDB(w http.ResponseWriter, r *http.Request) {
-	err := h.svc.PingDB()
+func (h *httpAdapter) getMetricsList(w http.ResponseWriter, r *http.Request) {
+	metrics, err := h.getter.GetListMetrics(r.Context())
 	if err != nil {
-		h.errorProcess(err, w)
+		logger.Log.Error("Can't get metrics", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err = tmpl.Execute(w, metrics); err != nil {
+		logger.Log.Error("Can't execute template", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	}
+}
+
+func (h *httpAdapter) pingDB(w http.ResponseWriter, r *http.Request) {
+	if err := h.health.PingDB(); err != nil {
+		writeError(err, w)
 		return
 	}
 
@@ -250,7 +237,7 @@ func (h *Handler) PingDB(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
-func (h *Handler) errorProcess(err error, w http.ResponseWriter) {
+func writeError(err error, w http.ResponseWriter) {
 	switch {
 	case errors.Is(err, service.ErrTypeMetric) || errors.Is(err, service.ErrInvalidValue):
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)

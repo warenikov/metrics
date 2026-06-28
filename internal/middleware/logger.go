@@ -1,58 +1,43 @@
 package middleware
 
 import (
-	"metrics/internal/logger"
 	"net/http"
 	"time"
 
 	"go.uber.org/zap"
+	"metrics/internal/logger"
 )
 
-type responseData struct {
+type loggingResponseWriter struct {
+	http.ResponseWriter
 	status int
 	size   int
 }
 
-type loggingResponseWriter struct {
-	http.ResponseWriter
-	responseData *responseData
-}
-
 func (r *loggingResponseWriter) Write(b []byte) (int, error) {
-	size, err := r.ResponseWriter.Write(b)
-	r.responseData.size += size
-	return size, err
+	n, err := r.ResponseWriter.Write(b)
+	r.size += n
+	return n, err
 }
 
 func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 	r.ResponseWriter.WriteHeader(statusCode)
-	r.responseData.status = statusCode
+	r.status = statusCode
 }
 
 func LoggerMiddleware(next http.Handler) http.Handler {
-	logFn := func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		rd := &responseData{
-			status: 0,
-			size:   0,
-		}
-		lw := loggingResponseWriter{
-			ResponseWriter: w,
-			responseData:   rd,
-		}
+		lw := loggingResponseWriter{ResponseWriter: w}
 
 		next.ServeHTTP(&lw, r)
-
-		duration := time.Since(start)
 
 		logger.Log.Debug("Request completed",
 			zap.String("URI", r.RequestURI),
 			zap.String("method", r.Method),
-			zap.Duration("duration", duration),
-			zap.Int("status", rd.status),
-			zap.Int("size", rd.size),
+			zap.Duration("duration", time.Since(start)),
+			zap.Int("status", lw.status),
+			zap.Int("size", lw.size),
 		)
-	}
-
-	return http.HandlerFunc(logFn)
+	})
 }

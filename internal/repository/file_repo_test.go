@@ -3,11 +3,15 @@ package repository
 import (
 	"context"
 	"encoding/json"
-	models "metrics/internal/model"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"os"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	models "metrics/internal/model"
 )
 
 func TestFileBackedRepo_Load(t *testing.T) {
@@ -177,6 +181,84 @@ func TestFileBackedRepo_Save(t *testing.T) {
 			if len(saved) != tt.wantLen {
 				t.Errorf("got %d metrics in file, want %d", len(saved), tt.wantLen)
 			}
+		})
+	}
+}
+
+func TestFileBackedRepo_GetMetrica(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "storage.txt")
+
+	mem := NewMemStorage()
+	repo, err := NewFileBackedRepo(mem, fp, 300, false)
+	require.NoError(t, err)
+	defer repo.Close()
+
+	v := 42.0
+	mem.UpdateGauges(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &v})
+
+	m, err := repo.GetMetrica(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge})
+	require.NoError(t, err)
+	assert.Equal(t, "Alloc", m.ID)
+	assert.InDelta(t, 42.0, *m.Value, 0.001)
+
+	_, err = repo.GetMetrica(context.Background(), models.Metrics{ID: "missing", MType: models.Gauge})
+	assert.Error(t, err)
+}
+
+func TestFileBackedRepo_GetListMetrics(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "storage.txt")
+
+	mem := NewMemStorage()
+	repo, err := NewFileBackedRepo(mem, fp, 300, false)
+	require.NoError(t, err)
+	defer repo.Close()
+
+	v1, v2 := 1.0, 2.0
+	mem.UpdateGauges(context.Background(), models.Metrics{ID: "A", MType: models.Gauge, Value: &v1})
+	mem.UpdateGauges(context.Background(), models.Metrics{ID: "B", MType: models.Gauge, Value: &v2})
+
+	list, err := repo.GetListMetrics(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, list, 2)
+}
+
+func TestFileBackedRepo_UpdateBatch(t *testing.T) {
+	floatPtr := func(v float64) *float64 { return &v }
+	intPtr := func(v int64) *int64 { return &v }
+
+	tests := []struct {
+		name     string
+		interval uint
+		wantFile bool
+	}{
+		{"async — file не обновляется сразу", 300, false},
+		{"sync — файл обновляется сразу", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			fp := filepath.Join(dir, "storage.txt")
+
+			mem := NewMemStorage()
+			repo, err := NewFileBackedRepo(mem, fp, tt.interval, false)
+			require.NoError(t, err)
+			defer repo.Close()
+
+			batch := []models.Metrics{
+				{ID: "Alloc", MType: models.Gauge, Value: floatPtr(1.5)},
+				{ID: "PollCount", MType: models.Counter, Delta: intPtr(3)},
+			}
+			require.NoError(t, repo.UpdateBatch(context.Background(), batch))
+
+			list, _ := mem.GetListMetrics(context.Background())
+			assert.Len(t, list, 2)
+
+			info, statErr := os.Stat(fp)
+			fileHasContent := statErr == nil && info.Size() > 0
+			assert.Equal(t, tt.wantFile, fileHasContent)
 		})
 	}
 }
