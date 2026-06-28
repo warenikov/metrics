@@ -13,7 +13,7 @@ func benchGzip(b *testing.B, compressed bool) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"Alloc","type":"gauge","value":1.5}`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`{"id":"Alloc","type":"gauge","value":1.5}`))
 	})
 	h := GzipMiddleware(handler)
 
@@ -44,7 +44,7 @@ func benchLogger(b *testing.B) {
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK")) //nolint:errcheck
+		_, _ = w.Write([]byte("OK"))
 	})
 	h := LoggerMiddleware(handler)
 
@@ -68,7 +68,7 @@ func benchHash(b *testing.B, key string) {
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK")) //nolint:errcheck
+		_, _ = w.Write([]byte("OK"))
 	})
 	h := HashMiddleware(key)(handler)
 

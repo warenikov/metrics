@@ -107,7 +107,7 @@ func TestIsRetryableNetworkError(t *testing.T) {
 
 	resp, netErr := http.Get(url) //nolint:noctx
 	if resp != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	require.Error(t, netErr)
 	assert.True(t, isRetryableNetworkError(netErr))
@@ -121,7 +121,7 @@ func TestResolveKey(t *testing.T) {
 
 	f, err := os.CreateTemp(t.TempDir(), "key")
 	require.NoError(t, err)
-	f.Close()
+	require.NoError(t, f.Close())
 	assert.Equal(t, f.Name(), resolveKey(f.Name()))
 }
 

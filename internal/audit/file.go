@@ -10,8 +10,8 @@ import (
 
 // FileObserver записывает события аудита в файл (по одному JSON на строку).
 type FileObserver struct {
-	mu sync.Mutex
 	f  *os.File
+	mu sync.Mutex
 }
 
 // NewFileObserver открывает файл в режиме append и возвращает наблюдатель.

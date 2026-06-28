@@ -40,7 +40,7 @@ func main() {
 		if dbErr != nil {
 			logger.Log.Fatal("Failed to connect to database", zap.Error(dbErr))
 		}
-		defer pgxDB.Conn.Close()
+		defer func() { _ = pgxDB.Conn.Close() }()
 
 		pgRepo, pgErr := repository.NewPostgresRepo(pgxDB.Conn, migrations.FS)
 		if pgErr != nil {

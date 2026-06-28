@@ -31,7 +31,7 @@ func TestCompress(t *testing.T) {
 			// проверяем что результат — валидный gzip
 			gr, err := gzip.NewReader(buf)
 			require.NoError(t, err)
-			defer gr.Close()
+			defer func() { _ = gr.Close() }()
 
 			decoded, err := io.ReadAll(gr)
 			require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestNewReader(t *testing.T) {
 
 		gr, err := NewReader(&buf)
 		require.NoError(t, err)
-		defer gr.Close()
+		defer func() { _ = gr.Close() }()
 
 		decoded, err := io.ReadAll(gr)
 		require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestCompressAndDecompress(t *testing.T) {
 
 	gr, err := NewReader(compressed)
 	require.NoError(t, err)
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	result, err := io.ReadAll(gr)
 	require.NoError(t, err)

@@ -56,7 +56,7 @@ func TestGzipMiddleware_Response(t *testing.T) {
 			handler := GzipMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", tt.responseContentType)
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(responseBody))
+				_, _ = w.Write([]byte(responseBody))
 			}))
 
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -73,7 +73,7 @@ func TestGzipMiddleware_Response(t *testing.T) {
 			if tt.expectCompressed {
 				gr, err := gzip.NewReader(w.Body)
 				require.NoError(t, err)
-				defer gr.Close()
+				defer func() { _ = gr.Close() }()
 				decoded, err := io.ReadAll(gr)
 				require.NoError(t, err)
 				assert.Equal(t, responseBody, string(decoded))
@@ -130,8 +130,8 @@ func TestLoggerMiddleware(t *testing.T) {
 	tests := []struct {
 		name           string
 		method         string
-		responseStatus int
 		responseBody   string
+		responseStatus int
 	}{
 		{
 			name:           "GET 200",
@@ -151,7 +151,7 @@ func TestLoggerMiddleware(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			handler := LoggerMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.responseStatus)
-				w.Write([]byte(tt.responseBody))
+				_, _ = w.Write([]byte(tt.responseBody))
 			}))
 
 			req := httptest.NewRequest(tt.method, "/test", nil)
@@ -176,7 +176,7 @@ func testHMAC(body []byte, key string) string {
 func TestHashMiddleware_NoKey(t *testing.T) {
 	handler := HashMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("body"))
@@ -194,7 +194,7 @@ func TestHashMiddleware_ValidHash(t *testing.T) {
 
 	handler := HashMiddleware(key)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -226,7 +226,7 @@ func TestHashMiddleware_NoHashHeader(t *testing.T) {
 
 	handler := HashMiddleware(key)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("body"))
@@ -242,7 +242,7 @@ func TestHashMiddleware_ResponseHash(t *testing.T) {
 
 	handler := HashMiddleware(key)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write(responseBody)
+		_, _ = w.Write(responseBody)
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)

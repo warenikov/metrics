@@ -20,9 +20,9 @@ func TestFileBackedRepo_Load(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		fileContent string // пустая строка = файл не создаётся
-		wantErr     bool
+		fileContent string
 		wantMetrics []models.Metrics
+		wantErr     bool
 	}{
 		{
 			name:        "file not exists",
@@ -86,7 +86,7 @@ func TestFileBackedRepo_Load(t *testing.T) {
 			fp := filepath.Join(dir, "storage.txt")
 
 			if tt.fileContent != "" {
-				os.WriteFile(fp, []byte(tt.fileContent), 0666)
+				require.NoError(t, os.WriteFile(fp, []byte(tt.fileContent), 0666))
 			}
 
 			mem := NewMemStorage()
@@ -98,7 +98,7 @@ func TestFileBackedRepo_Load(t *testing.T) {
 			if tt.wantErr {
 				return
 			}
-			defer repo.Close()
+			defer func() { _ = repo.Close() }()
 
 			list, _ := mem.GetListMetrics(context.Background())
 			if len(list) != len(tt.wantMetrics) {
@@ -124,8 +124,8 @@ func TestFileBackedRepo_Save(t *testing.T) {
 	intPtr := func(i int64) *int64 { return &i }
 
 	tests := []struct {
-		name         string
 		initialState map[string]models.Metrics
+		name         string
 		wantLen      int
 	}{
 		{
@@ -192,10 +192,10 @@ func TestFileBackedRepo_GetMetrica(t *testing.T) {
 	mem := NewMemStorage()
 	repo, err := NewFileBackedRepo(mem, fp, 300, false)
 	require.NoError(t, err)
-	defer repo.Close()
+	defer func() { _ = repo.Close() }()
 
 	v := 42.0
-	mem.UpdateGauges(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &v})
+	_, _ = mem.UpdateGauges(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &v})
 
 	m, err := repo.GetMetrica(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge})
 	require.NoError(t, err)
@@ -213,11 +213,11 @@ func TestFileBackedRepo_GetListMetrics(t *testing.T) {
 	mem := NewMemStorage()
 	repo, err := NewFileBackedRepo(mem, fp, 300, false)
 	require.NoError(t, err)
-	defer repo.Close()
+	defer func() { _ = repo.Close() }()
 
 	v1, v2 := 1.0, 2.0
-	mem.UpdateGauges(context.Background(), models.Metrics{ID: "A", MType: models.Gauge, Value: &v1})
-	mem.UpdateGauges(context.Background(), models.Metrics{ID: "B", MType: models.Gauge, Value: &v2})
+	_, _ = mem.UpdateGauges(context.Background(), models.Metrics{ID: "A", MType: models.Gauge, Value: &v1})
+	_, _ = mem.UpdateGauges(context.Background(), models.Metrics{ID: "B", MType: models.Gauge, Value: &v2})
 
 	list, err := repo.GetListMetrics(context.Background())
 	require.NoError(t, err)
@@ -245,7 +245,7 @@ func TestFileBackedRepo_UpdateBatch(t *testing.T) {
 			mem := NewMemStorage()
 			repo, err := NewFileBackedRepo(mem, fp, tt.interval, false)
 			require.NoError(t, err)
-			defer repo.Close()
+			defer func() { _ = repo.Close() }()
 
 			batch := []models.Metrics{
 				{ID: "Alloc", MType: models.Gauge, Value: floatPtr(1.5)},
@@ -268,10 +268,10 @@ func TestFileBackedRepo_ImmediateSave(t *testing.T) {
 	intPtr := func(i int64) *int64 { return &i }
 
 	tests := []struct {
+		metric   models.Metrics
 		name     string
 		interval time.Duration
-		metric   models.Metrics
-		wantSave bool // ожидаем ли запись в файл после update
+		wantSave bool
 	}{
 		{
 			name:     "gauge: interval=0 saves immediately",
@@ -312,9 +312,9 @@ func TestFileBackedRepo_ImmediateSave(t *testing.T) {
 
 			switch tt.metric.MType {
 			case models.Gauge:
-				repo.UpdateGauges(context.Background(), tt.metric)
+				_, _ = repo.UpdateGauges(context.Background(), tt.metric)
 			case models.Counter:
-				repo.UpdateCounter(context.Background(), tt.metric)
+				_, _ = repo.UpdateCounter(context.Background(), tt.metric)
 			}
 
 			info, err := os.Stat(fp)

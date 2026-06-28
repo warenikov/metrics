@@ -56,7 +56,7 @@ func HashMiddleware(key string) func(http.Handler) http.Handler {
 			}
 			w.Header().Set("HashSHA256", hashBody(hrw.buf.Bytes(), key))
 			w.WriteHeader(status)
-			w.Write(hrw.buf.Bytes()) //nolint:errcheck
+			_, _ = w.Write(hrw.buf.Bytes())
 		})
 	}
 }

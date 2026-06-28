@@ -17,8 +17,8 @@ import (
 
 // captureObserver захватывает полученные события для проверки в тестах.
 type captureObserver struct {
-	events []AuditEvent
 	err    error
+	events []AuditEvent
 }
 
 func (o *captureObserver) Notify(_ context.Context, event AuditEvent) error {
@@ -67,11 +67,11 @@ func TestFileObserver_Notify(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "audit-*.log")
 	require.NoError(t, err)
 	path := f.Name()
-	f.Close()
+	require.NoError(t, f.Close())
 
 	obs, err := NewFileObserver(path)
 	require.NoError(t, err)
-	defer obs.Close()
+	defer func() { _ = obs.Close() }()
 
 	events := []AuditEvent{
 		{TS: 111, Metrics: []string{"Alloc", "Frees"}, IPAddress: "192.168.0.1"},

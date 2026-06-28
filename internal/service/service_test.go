@@ -20,14 +20,14 @@ func TestMetricsService_ParseAndSave_Integration(t *testing.T) {
 	strPtr := func(s string) *string { return &s }
 
 	tests := []struct {
+		wantErr       error
+		setupValue    *string
 		name          string
 		mType         string
 		id            string
 		value         string
-		setupValue    *string
 		expectedValue float64
 		expectedDelta int64
-		wantErr       error
 	}{
 		{
 			name:          "new gauge",
@@ -198,9 +198,9 @@ func TestMetricsService_PingDB(t *testing.T) {
 	repo := repository.NewMemStorage()
 
 	tests := []struct {
-		name    string
 		db      DB
 		wantErr error
+		name    string
 	}{
 		{
 			name:    "БД доступна",

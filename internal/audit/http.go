@@ -16,8 +16,8 @@ const httpObserverTimeout = 5 * time.Second
 // HTTPObserver отправляет события аудита на удалённый сервер методом POST.
 // При временных сбоях выполняет до 3 повторных попыток с экспоненциальной задержкой.
 type HTTPObserver struct {
-	url    string
 	client *retryablehttp.Client
+	url    string
 }
 
 // NewHTTPObserver создаёт наблюдатель, отправляющий события на url.
@@ -47,7 +47,7 @@ func (o *HTTPObserver) Notify(ctx context.Context, event AuditEvent) error {
 	if err != nil {
 		return fmt.Errorf("audit send: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		return fmt.Errorf("audit remote status: %d", resp.StatusCode)

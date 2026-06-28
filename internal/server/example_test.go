@@ -29,7 +29,7 @@ func Example_updateGauge() {
 	defer ts.Close()
 
 	resp, _ := http.Post(ts.URL+"/update/gauge/Alloc/1.5", "", nil)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	fmt.Println(resp.StatusCode)
 
 	// Output:
@@ -42,13 +42,13 @@ func Example_updateCounter() {
 	defer ts.Close()
 
 	r1, _ := http.Post(ts.URL+"/update/counter/PollCount/3", "", nil)
-	r1.Body.Close()
+	_ = r1.Body.Close()
 	r2, _ := http.Post(ts.URL+"/update/counter/PollCount/7", "", nil)
-	r2.Body.Close()
+	_ = r2.Body.Close()
 
 	resp, _ := http.Get(ts.URL + "/value/counter/PollCount")
 	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	fmt.Println(string(body))
 
 	// Output:
@@ -61,11 +61,11 @@ func Example_getMetricaValue() {
 	defer ts.Close()
 
 	r, _ := http.Post(ts.URL+"/update/gauge/Alloc/1.5", "", nil)
-	r.Body.Close()
+	_ = r.Body.Close()
 
 	resp, _ := http.Get(ts.URL + "/value/gauge/Alloc")
 	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	fmt.Println(string(body))
 
 	// Output:
@@ -81,7 +81,7 @@ func Example_updateJSON() {
 	body := `{"id":"Alloc","type":"gauge","value":2.5}`
 	resp, _ := http.Post(ts.URL+"/update/", "application/json", strings.NewReader(body))
 	data, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	fmt.Println(strings.TrimSpace(string(data)))
 
 	// Output:
@@ -96,13 +96,13 @@ func Example_getMetricaJSON() {
 	// Store the metric first.
 	r, _ := http.Post(ts.URL+"/update/", "application/json",
 		strings.NewReader(`{"id":"Alloc","type":"gauge","value":3.5}`))
-	r.Body.Close()
+	_ = r.Body.Close()
 
 	// Retrieve it via JSON.
 	resp, _ := http.Post(ts.URL+"/value/", "application/json",
 		strings.NewReader(`{"id":"Alloc","type":"gauge"}`))
 	data, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	fmt.Println(strings.TrimSpace(string(data)))
 
 	// Output:
@@ -119,7 +119,7 @@ func Example_updateBatch() {
 		{"id":"PollCount","type":"counter","delta":5}
 	]`
 	resp, _ := http.Post(ts.URL+"/updates/", "application/json", strings.NewReader(batch))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	fmt.Println(resp.StatusCode)
 
 	// Output:
