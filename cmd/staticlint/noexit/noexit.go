@@ -49,16 +49,13 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/analysis/passes/inspect"
-	"golang.org/x/tools/go/ast/inspector"
 )
 
 // Analyzer is the entry point for the noexit static-analysis pass.
 var Analyzer = &analysis.Analyzer{
-	Name:     "noexit",
-	Doc:      "prohibits direct calls to os.Exit inside the main function of the main package",
-	Requires: []*analysis.Analyzer{inspect.Analyzer},
-	Run:      run,
+	Name: "noexit",
+	Doc:  "prohibits direct calls to os.Exit inside the main function of the main package",
+	Run:  run,
 }
 
 // isGenerated reports whether a Go source file was auto-generated.
@@ -83,8 +80,6 @@ func run(pass *analysis.Pass) (any, error) {
 		return nil, nil
 	}
 
-	insp := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
-
 	// Find the top-level func main() declaration.
 	// Skip auto-generated files (e.g. go test's _testmain.go).
 	var mainFn *ast.FuncDecl
@@ -101,7 +96,6 @@ func run(pass *analysis.Pass) (any, error) {
 			}
 		}
 	}
-	_ = insp // inspector used for future extensions
 	if mainFn == nil {
 		return nil, nil
 	}

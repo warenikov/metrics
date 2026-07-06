@@ -12,23 +12,17 @@ import (
 	"go.uber.org/zap"
 )
 
-// Set at build time via -ldflags "-X main.buildVersion=v1.0.0 -X main.buildDate=... -X main.buildCommit=..."
+// Set at build time via -ldflags, see README.md.
 var (
-	buildVersion string
-	buildDate    string
-	buildCommit  string
+	buildVersion = "N/A"
+	buildDate    = "N/A"
+	buildCommit  = "N/A"
 )
 
 func printBuildInfo() {
-	na := func(s string) string {
-		if s == "" {
-			return "N/A"
-		}
-		return s
-	}
-	fmt.Printf("Build version: %s\n", na(buildVersion))
-	fmt.Printf("Build date: %s\n", na(buildDate))
-	fmt.Printf("Build commit: %s\n", na(buildCommit))
+	fmt.Printf("Build version: %s\n", buildVersion)
+	fmt.Printf("Build date: %s\n", buildDate)
+	fmt.Printf("Build commit: %s\n", buildCommit)
 }
 
 func main() {

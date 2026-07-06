@@ -40,6 +40,12 @@ func TestGet_ReturnsObject(t *testing.T) {
 	require.NotNil(t, it)
 }
 
+func TestNew_NilFactory_GetReturnsZeroValue(t *testing.T) {
+	p := pool.New[*item](nil)
+	it := p.Get()
+	assert.Nil(t, it, "Get without a factory must return the zero value of T")
+}
+
 func TestGet_UsesFactory(t *testing.T) {
 	calls := 0
 	p := pool.New(func() *item {

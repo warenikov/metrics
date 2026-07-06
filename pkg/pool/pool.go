@@ -33,20 +33,27 @@ type Pool[T Resetter] struct {
 	p sync.Pool
 }
 
-// New creates a Pool whose factory is newFn.
-// newFn is called by Get when the pool is empty.
+// New creates a Pool whose factory is newFn. newFn is called by Get when the
+// pool is empty. newFn may be nil, in which case Get returns the zero value
+// of T instead of allocating.
 func New[T Resetter](newFn func() T) *Pool[T] {
-	return &Pool[T]{
-		p: sync.Pool{
-			New: func() any { return newFn() },
-		},
+	p := &Pool[T]{}
+	if newFn != nil {
+		p.p.New = func() any { return newFn() }
 	}
+	return p
 }
 
 // Get retrieves an object from the pool, allocating a new one via the factory
-// if the pool is currently empty.
+// if the pool is currently empty. If no factory was given to New, Get returns
+// the zero value of T instead.
 func (p *Pool[T]) Get() T {
-	return p.p.Get().(T) //nolint:forcetypeassert
+	v := p.p.Get()
+	if v == nil {
+		var zero T
+		return zero
+	}
+	return v.(T) //nolint:forcetypeassert
 }
 
 // Put resets v and returns it to the pool for future reuse.
