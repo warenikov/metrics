@@ -1,8 +1,13 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +19,8 @@ import (
 
 	"metrics/internal/config"
 	models "metrics/internal/model"
+	"metrics/pkg/compress"
+	"metrics/pkg/crypto"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -132,12 +139,23 @@ func TestNewMetricaAgent(t *testing.T) {
 		PollInterval:   2,
 		RateLimit:      3,
 	}
-	a := NewMetricaAgent(cfg)
+	a := NewMetricaAgent(cfg, nil)
 	require.NotNil(t, a)
 	assert.Equal(t, "http://localhost:8080", a.serverAddr)
 	assert.Equal(t, 2*time.Second, a.pollInterval)
 	assert.Equal(t, 10*time.Second, a.sendInterval)
 	assert.Equal(t, 3, a.rateLimit)
+	assert.Nil(t, a.pubKey)
+}
+
+func TestNewMetricaAgent_WithPublicKey(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	cfg := &config.Config{ServerAddr: "localhost:8080"}
+	a := NewMetricaAgent(cfg, &key.PublicKey)
+	require.NotNil(t, a.pubKey)
+	assert.Equal(t, key.PublicKey.N, a.pubKey.N)
 }
 
 func TestPoll(t *testing.T) {
@@ -214,6 +232,46 @@ func TestSendBatch_PostsToServer(t *testing.T) {
 	m.SendBatch()
 
 	assert.Equal(t, int32(1), reqCount.Load())
+}
+
+func TestSendBatch_EncryptsBodyWithPublicKey(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	var receivedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, readErr := io.ReadAll(r.Body)
+		require.NoError(t, readErr)
+		receivedBody = b
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := &MetricaAgent{
+		ms:         &runtime.MemStats{},
+		gauges:     &models.GaugeMertics{},
+		counters:   &models.CounterMertics{},
+		serverAddr: srv.URL,
+		pubKey:     &key.PublicKey,
+	}
+	runtime.ReadMemStats(m.ms)
+	m.collectMerticsManual()
+	m.SendBatch()
+
+	require.NotEmpty(t, receivedBody)
+
+	compressed, err := crypto.Decrypt(key, receivedBody)
+	require.NoError(t, err, "body must be decryptable with the matching private key")
+
+	gz, err := compress.NewReader(bytes.NewReader(compressed))
+	require.NoError(t, err, "decrypted body must be valid gzip")
+	defer func() { _ = gz.Close() }()
+	plain, err := io.ReadAll(gz)
+	require.NoError(t, err)
+
+	var batch []models.Metrics
+	require.NoError(t, json.Unmarshal(plain, &batch))
+	assert.NotEmpty(t, batch)
 }
 
 func TestPostRequest_RetriesOnNetworkError(t *testing.T) {

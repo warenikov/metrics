@@ -19,7 +19,7 @@ func newExampleServer() *httptest.Server {
 	cfg := &config.Config{}
 	repo := repository.NewMemStorage()
 	svc := service.NewMetricsService(repo, nil)
-	srv := server.New(cfg, svc, svc, svc, nil)
+	srv := server.New(cfg, svc, svc, svc, nil, nil)
 	return httptest.NewServer(srv.Handler())
 }
 

@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
 	"fmt"
 	"metrics/internal/agent"
 	"metrics/internal/config"
 	"metrics/internal/logger"
+	"metrics/pkg/crypto"
 	"os/signal"
 	"syscall"
 
@@ -34,9 +36,18 @@ func main() {
 	if err := logger.Initialize(cfg.LogLevel); err != nil {
 		logger.Log.Fatal("Failed to initialize logger", zap.Error(err))
 	}
+	var pubKey *rsa.PublicKey
+	if cfg.CryptoKeyPath != "" {
+		key, keyErr := crypto.LoadPublicKey(cfg.CryptoKeyPath)
+		if keyErr != nil {
+			logger.Log.Fatal("Invalid crypto key", zap.Error(keyErr))
+		}
+		pubKey = key
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	a := agent.NewMetricaAgent(cfg)
+	a := agent.NewMetricaAgent(cfg, pubKey)
 	a.Run(ctx)
 }
