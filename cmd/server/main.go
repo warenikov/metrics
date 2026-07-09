@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"metrics/internal/audit"
 	"metrics/internal/config"
 	"metrics/internal/config/db"
@@ -18,7 +19,21 @@ import (
 	"go.uber.org/zap"
 )
 
+// Set at build time via -ldflags, see README.md.
+var (
+	buildVersion = "N/A"
+	buildDate    = "N/A"
+	buildCommit  = "N/A"
+)
+
+func printBuildInfo() {
+	fmt.Printf("Build version: %s\n", buildVersion)
+	fmt.Printf("Build date: %s\n", buildDate)
+	fmt.Printf("Build commit: %s\n", buildCommit)
+}
+
 func main() {
+	printBuildInfo()
 	cfg, err := config.LoadServerConfig()
 	if err != nil {
 		logger.Log.Fatal("Invalid config", zap.Error(err))
@@ -40,7 +55,7 @@ func main() {
 		if dbErr != nil {
 			logger.Log.Fatal("Failed to connect to database", zap.Error(dbErr))
 		}
-		defer pgxDB.Conn.Close()
+		defer func() { _ = pgxDB.Conn.Close() }()
 
 		pgRepo, pgErr := repository.NewPostgresRepo(pgxDB.Conn, migrations.FS)
 		if pgErr != nil {

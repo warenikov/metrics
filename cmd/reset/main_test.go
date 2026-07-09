@@ -1,0 +1,280 @@
+package main
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestModuleRoot(t *testing.T) {
+	root, err := moduleRoot(".")
+	if err != nil {
+		t.Fatalf("moduleRoot: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		t.Fatalf("go.mod not found at %s: %v", root, err)
+	}
+}
+
+func TestHasTrigger(t *testing.T) {
+	tests := []struct {
+		comments []string
+		want     bool
+	}{
+		{[]string{"// generate:reset"}, true},
+		{[]string{"//generate:reset"}, true},
+		{[]string{"//  generate:reset  "}, true},
+		{[]string{"// SomeStruct docs.", "// generate:reset"}, true},
+		{[]string{"// generate:other"}, false},
+		{nil, false},
+	}
+
+	for _, tt := range tests {
+		defs := parseStructsFromSrc(t, buildSrc(tt.comments, "type Foo struct{}"))
+		got := len(defs) > 0
+		if got != tt.want {
+			t.Errorf("comments=%v: hasTrigger got %v, want %v", tt.comments, got, tt.want)
+		}
+	}
+}
+
+func TestPrimitiveZero(t *testing.T) {
+	cases := map[string]string{
+		"bool":    "false",
+		"string":  `""`,
+		"int":     "0",
+		"float64": "0",
+		"byte":    "0",
+		"rune":    "0",
+	}
+	for name, want := range cases {
+		got, ok := primitiveZero(name)
+		if !ok || got != want {
+			t.Errorf("primitiveZero(%q) = %q, %v; want %q, true", name, got, ok, want)
+		}
+	}
+	if _, ok := primitiveZero("MyStruct"); ok {
+		t.Error("primitiveZero(MyStruct) should return false")
+	}
+}
+
+func TestEmbeddedName(t *testing.T) {
+	src := `package p
+// generate:reset
+type Outer struct {
+	Inner
+	*Ptr
+}`
+	defs := parseStructsFromSrc(t, src)
+	if len(defs) != 1 {
+		t.Fatalf("got %d defs, want 1", len(defs))
+	}
+	names := make(map[string]bool)
+	for _, f := range defs[0].fields {
+		names[f.name] = true
+	}
+	if !names["Inner"] || !names["Ptr"] {
+		t.Errorf("embedded fields not found: %v", names)
+	}
+}
+
+func TestRenderFile_Primitives(t *testing.T) {
+	defs := []structDef{{
+		name: "Box",
+		fields: []*fieldDef{
+			{name: "n", typ: ast.NewIdent("int")},
+			{name: "s", typ: ast.NewIdent("string")},
+			{name: "ok", typ: ast.NewIdent("bool")},
+		},
+	}}
+	src, err := renderFile("mypkg", defs)
+	if err != nil {
+		t.Fatalf("renderFile: %v", err)
+	}
+	code := string(src)
+	for _, want := range []string{"b.n = 0", `b.s = ""`, "b.ok = false"} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q in:\n%s", want, code)
+		}
+	}
+}
+
+func TestRenderFile_SliceAndMap(t *testing.T) {
+	defs := []structDef{{
+		name: "Coll",
+		fields: []*fieldDef{
+			{name: "items", typ: &ast.ArrayType{Elt: ast.NewIdent("string")}},
+			{name: "idx", typ: &ast.MapType{Key: ast.NewIdent("string"), Value: ast.NewIdent("int")}},
+		},
+	}}
+	src, err := renderFile("pkg", defs)
+	if err != nil {
+		t.Fatalf("renderFile: %v", err)
+	}
+	code := string(src)
+	if !strings.Contains(code, "c.items = c.items[:0]") {
+		t.Errorf("missing slice reset in:\n%s", code)
+	}
+	if !strings.Contains(code, "clear(c.idx)") {
+		t.Errorf("missing map clear in:\n%s", code)
+	}
+}
+
+func TestRenderFile_PointerToPrimitive(t *testing.T) {
+	defs := []structDef{{
+		name:   "Ref",
+		fields: []*fieldDef{{name: "p", typ: &ast.StarExpr{X: ast.NewIdent("int")}}},
+	}}
+	src, err := renderFile("pkg", defs)
+	if err != nil {
+		t.Fatalf("renderFile: %v", err)
+	}
+	code := string(src)
+	if !strings.Contains(code, "r.p != nil") {
+		t.Errorf("missing nil check in:\n%s", code)
+	}
+	if !strings.Contains(code, "*r.p = 0") {
+		t.Errorf("missing *r.p = 0 in:\n%s", code)
+	}
+}
+
+func TestRenderFile_NilGuard(t *testing.T) {
+	src, err := renderFile("pkg", []structDef{{name: "Empty"}})
+	if err != nil {
+		t.Fatalf("renderFile: %v", err)
+	}
+	if !strings.Contains(string(src), "if e == nil") {
+		t.Errorf("missing nil guard in:\n%s", src)
+	}
+}
+
+func TestGenerate_Integration(t *testing.T) {
+	dir := t.TempDir()
+	goSrc := `package demo
+
+// generate:reset
+type Counter struct {
+	count int
+	name  string
+	tags  []string
+	index map[string]int
+}
+`
+	write(t, dir, "counter.go", goSrc)
+
+	if err := processPackage(dir); err != nil {
+		t.Fatalf("processPackage: %v", err)
+	}
+
+	code := readFile(t, filepath.Join(dir, outputFile))
+	for _, want := range []string{
+		"DO NOT EDIT",
+		"package demo",
+		"func (c *Counter) Reset()",
+		"c.count = 0",
+		`c.name = ""`,
+		"c.tags = c.tags[:0]",
+		"clear(c.index)",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q in generated code:\n%s", want, code)
+		}
+	}
+}
+
+func TestGenerate_PointerToNamedType(t *testing.T) {
+	dir := t.TempDir()
+	goSrc := `package demo
+
+// generate:reset
+type Node struct {
+	next *Node
+	val  *int
+}
+`
+	write(t, dir, "node.go", goSrc)
+	if err := processPackage(dir); err != nil {
+		t.Fatalf("processPackage: %v", err)
+	}
+	code := readFile(t, filepath.Join(dir, outputFile))
+	if !strings.Contains(code, "n.next != nil") {
+		t.Errorf("missing nil check for *Node in:\n%s", code)
+	}
+	if !strings.Contains(code, "*n.val = 0") {
+		t.Errorf("missing *n.val = 0 in:\n%s", code)
+	}
+}
+
+func TestGenerate_NoAnnotation_RemovesFile(t *testing.T) {
+	dir := t.TempDir()
+	stub := "// Code generated by cmd/reset. DO NOT EDIT.\npackage demo\n"
+	write(t, dir, outputFile, stub)
+	write(t, dir, "plain.go", "package demo\ntype Plain struct{ x int }\n")
+
+	if err := processPackage(dir); err != nil {
+		t.Fatalf("processPackage: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, outputFile)); !os.IsNotExist(err) {
+		t.Error("expected reset.gen.go to be removed when no structs are annotated")
+	}
+}
+
+func TestGenerate_SkipsTestFiles(t *testing.T) {
+	dir := t.TempDir()
+	// Annotation only in a test file — should be ignored.
+	testSrc := `package demo
+// generate:reset
+type TestOnly struct{ x int }
+`
+	write(t, dir, "demo_test.go", testSrc)
+	write(t, dir, "main.go", "package demo\n")
+
+	if err := processPackage(dir); err != nil {
+		t.Fatalf("processPackage: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, outputFile)); !os.IsNotExist(err) {
+		t.Error("should not generate for annotations in test files")
+	}
+}
+
+// --- helpers ---
+
+func buildSrc(comments []string, typeDecl string) string {
+	var sb strings.Builder
+	sb.WriteString("package p\n")
+	for _, c := range comments {
+		sb.WriteString(c + "\n")
+	}
+	sb.WriteString(typeDecl + "\n")
+	return sb.String()
+}
+
+func parseStructsFromSrc(t *testing.T, src string) []structDef {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "f.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	return collectStructs(f)
+}
+
+func write(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(data)
+}

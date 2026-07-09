@@ -13,31 +13,18 @@ import (
 // Config holds all runtime configuration shared between the server and the agent.
 // Each field is mapped to an environment variable via the env struct tag.
 type Config struct {
-	// ServerAddr is the TCP address the HTTP server listens on (host:port).
-	ServerAddr string `env:"ADDRESS"`
-	// ReportInterval is how often (in seconds) the agent sends metrics to the server.
-	ReportInterval int `env:"REPORT_INTERVAL"`
-	// PollInterval is how often (in seconds) the agent polls runtime metrics.
-	PollInterval int `env:"POLL_INTERVAL"`
-	// LogLevel is the zap log level (debug, info, warn, error).
-	LogLevel string `env:"LOG_LEVEL"`
-	// StoreInterval is how often (in seconds) the server flushes metrics to the file store.
-	// Zero means synchronous (write-through) mode.
-	StoreInterval uint `env:"STORE_INTERVAL"`
-	// FileStoragePath is the path to the persistent JSON metrics file.
+	ServerAddr      string `env:"ADDRESS"`
+	LogLevel        string `env:"LOG_LEVEL"`
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
-	// Restore controls whether metrics are loaded from FileStoragePath on server startup.
-	Restore bool `env:"RESTORE"`
-	// DBDSN is the PostgreSQL connection string. Empty disables database storage.
-	DBDSN string `env:"DATABASE_DSN"`
-	// Key is the HMAC-SHA256 signing key for request/response integrity verification.
-	Key string `env:"KEY"`
-	// RateLimit caps the number of parallel outgoing HTTP connections used by the agent.
-	RateLimit int `env:"RATE_LIMIT"`
-	// AuditFile is the path to the append-only audit log file. Empty disables file auditing.
-	AuditFile string `env:"AUDIT_FILE"`
-	// AuditURL is the remote endpoint that receives audit events via HTTP POST. Empty disables remote auditing.
-	AuditURL string `env:"AUDIT_URL"`
+	DBDSN           string `env:"DATABASE_DSN"`
+	Key             string `env:"KEY"`
+	AuditFile       string `env:"AUDIT_FILE"`
+	AuditURL        string `env:"AUDIT_URL"`
+	ReportInterval  int    `env:"REPORT_INTERVAL"`
+	PollInterval    int    `env:"POLL_INTERVAL"`
+	StoreInterval   uint   `env:"STORE_INTERVAL"`
+	RateLimit       int    `env:"RATE_LIMIT"`
+	Restore         bool   `env:"RESTORE"`
 }
 
 // LoadServerConfig loads the server configuration from environment variables

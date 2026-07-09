@@ -87,7 +87,7 @@ func (h *httpAdapter) updateJSON(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	deltaVal := "nil"
 	if metrica.Delta != nil {
@@ -125,7 +125,7 @@ func (h *httpAdapter) updateJSON(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(resp)
+	_, _ = w.Write(resp)
 }
 
 func (h *httpAdapter) getMetricaJSON(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +136,7 @@ func (h *httpAdapter) getMetricaJSON(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	logger.Log.Debug("GetMetricaJson: Request for",
 		zap.String("ID", metrica.ID),
@@ -162,7 +162,7 @@ func (h *httpAdapter) getMetricaJSON(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", models.ContentTypeJSON)
 	w.WriteHeader(http.StatusOK)
-	w.Write(resp)
+	_, _ = w.Write(resp)
 }
 
 func (h *httpAdapter) getMetrica(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +182,7 @@ func (h *httpAdapter) getMetrica(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", models.ContentTypeText)
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(mm.ValueString()))
+	_, _ = w.Write([]byte(mm.ValueString()))
 }
 
 func (h *httpAdapter) updateBatch(w http.ResponseWriter, r *http.Request) {
@@ -191,7 +191,7 @@ func (h *httpAdapter) updateBatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	if len(metrics) == 0 {
 		w.WriteHeader(http.StatusOK)
@@ -234,7 +234,7 @@ func (h *httpAdapter) pingDB(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", models.ContentTypeText)
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	_, _ = w.Write([]byte("OK"))
 }
 
 func writeError(err error, w http.ResponseWriter) {

@@ -116,20 +116,20 @@ func TestHandler_GetMetrica(t *testing.T) {
 
 	var valCounter int64 = 10
 	var valGauge = 10.5
-	repo.UpdateGauges(context.Background(), models.Metrics{ID: "TestGauge", MType: models.Gauge, Value: &valGauge})
-	repo.UpdateCounter(context.Background(), models.Metrics{ID: "TestName", MType: models.Counter, Delta: &valCounter})
-	repo.UpdateCounter(context.Background(), models.Metrics{ID: "TestCounter", MType: models.Counter, Delta: &valCounter})
+	_, _ = repo.UpdateGauges(context.Background(), models.Metrics{ID: "TestGauge", MType: models.Gauge, Value: &valGauge})
+	_, _ = repo.UpdateCounter(context.Background(), models.Metrics{ID: "TestName", MType: models.Counter, Delta: &valCounter})
+	_, _ = repo.UpdateCounter(context.Background(), models.Metrics{ID: "TestCounter", MType: models.Counter, Delta: &valCounter})
 
 	tests := []struct {
 		name           string
 		url            string
-		expectedStatus int
 		expectedBody   string
+		expectedStatus int
 	}{
-		{"Получение существующей метрики", "/value/gauge/TestGauge", http.StatusOK, "10.5"},
-		{"Повторное получение метрики", "/value/gauge/TestGauge", http.StatusOK, "10.5"},
-		{"Запрос несуществующей метрики", "/value/gauge/Unknown", http.StatusNotFound, ""},
-		{"Запрос метрики c неверным типом", "/value/gauge/TestName", http.StatusBadRequest, ""},
+		{name: "Получение существующей метрики", url: "/value/gauge/TestGauge", expectedStatus: http.StatusOK, expectedBody: "10.5"},
+		{name: "Повторное получение метрики", url: "/value/gauge/TestGauge", expectedStatus: http.StatusOK, expectedBody: "10.5"},
+		{name: "Запрос несуществующей метрики", url: "/value/gauge/Unknown", expectedStatus: http.StatusNotFound, expectedBody: ""},
+		{name: "Запрос метрики c неверным типом", url: "/value/gauge/TestName", expectedStatus: http.StatusBadRequest, expectedBody: ""},
 	}
 
 	for _, tt := range tests {
@@ -160,9 +160,9 @@ func TestHandler_UpdateJSON(t *testing.T) {
 	tests := []struct {
 		name           string
 		body           string
-		expectedStatus int
 		expectedType   string
 		expectedID     string
+		expectedStatus int
 	}{
 		{
 			name:           "Валидный gauge",
@@ -209,17 +209,17 @@ func TestHandler_GetMetricaJSON(t *testing.T) {
 
 	gaugeVal := 100.5
 	var counterVal int64 = 5
-	repo.UpdateGauges(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &gaugeVal})
-	repo.UpdateCounter(context.Background(), models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &counterVal})
+	_, _ = repo.UpdateGauges(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &gaugeVal})
+	_, _ = repo.UpdateCounter(context.Background(), models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &counterVal})
 
 	r := chi.NewRouter()
 	r.Post("/value/", h.getMetricaJSON)
 
 	tests := []struct {
+		checkValue     func(t *testing.T, m models.Metrics)
 		name           string
 		body           string
 		expectedStatus int
-		checkValue     func(t *testing.T, m models.Metrics)
 	}{
 		{
 			name:           "Gauge найден",
@@ -275,8 +275,8 @@ func TestHandler_GetMetricsList(t *testing.T) {
 			setup: func(repo *repository.MemStorage) {
 				v := 42.0
 				var d int64 = 7
-				repo.UpdateGauges(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &v})
-				repo.UpdateCounter(context.Background(), models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &d})
+				_, _ = repo.UpdateGauges(context.Background(), models.Metrics{ID: "Alloc", MType: models.Gauge, Value: &v})
+				_, _ = repo.UpdateCounter(context.Background(), models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &d})
 			},
 			expectInBody: []string{"Alloc", "PollCount"},
 		},
@@ -351,12 +351,12 @@ func TestHandler_UpdateBatch(t *testing.T) {
 
 func TestHandler_PingDB(t *testing.T) {
 	tests := []struct {
-		name           string
 		pingErr        error
+		name           string
 		expectedStatus int
 	}{
-		{"БД доступна", nil, http.StatusOK},
-		{"БД недоступна", errors.New("connection refused"), http.StatusInternalServerError},
+		{name: "БД доступна", pingErr: nil, expectedStatus: http.StatusOK},
+		{name: "БД недоступна", pingErr: errors.New("connection refused"), expectedStatus: http.StatusInternalServerError},
 	}
 
 	for _, tt := range tests {

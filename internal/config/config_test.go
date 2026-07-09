@@ -13,13 +13,13 @@ func TestLoadServerConfig(t *testing.T) {
 	defer func() { os.Args = originalArgs }()
 
 	tests := []struct {
-		name             string
 		envVars          map[string]string
-		args             []string
-		wantErr          bool
+		name             string
 		expectedAddr     string
-		expectedInterval uint
 		expectedFilePath string
+		args             []string
+		expectedInterval uint
+		wantErr          bool
 		expectedRestore  bool
 	}{
 		{
@@ -156,13 +156,13 @@ func TestLoadAgentConfig(t *testing.T) {
 	defer func() { os.Args = originalArgs }()
 
 	tests := []struct {
-		name           string
 		envVars        map[string]string
-		args           []string
-		wantErr        bool
+		name           string
 		expectedAddr   string
+		args           []string
 		expectedReport int
 		expectedPoll   int
+		wantErr        bool
 	}{
 		{
 			name:           "defaults",

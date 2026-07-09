@@ -17,7 +17,7 @@ func newMockRepo(t *testing.T) (*PostgresRepo, sqlmock.Sqlmock) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		db.Close() //nolint:errcheck
+		_ = db.Close()
 	})
 	// напрямую создаём struct, минуя конструктор с миграциями
 	return &PostgresRepo{db: db}, mock
@@ -142,11 +142,11 @@ func TestPostgresRepo_GetMetrica(t *testing.T) {
 	floatPtr := func(f float64) *float64 { return &f }
 
 	tests := []struct {
-		name    string
-		input   models.Metrics
 		rowFunc func(mock sqlmock.Sqlmock, input models.Metrics)
-		wantErr bool
+		input   models.Metrics
+		name    string
 		wantID  string
+		wantErr bool
 	}{
 		{
 			name:  "found gauge",
@@ -208,8 +208,8 @@ func TestPostgresRepo_GetListMetrics(t *testing.T) {
 	intPtr := func(i int64) *int64 { return &i }
 
 	tests := []struct {
-		name    string
 		rows    *sqlmock.Rows
+		name    string
 		wantLen int
 		wantErr bool
 	}{
@@ -254,9 +254,9 @@ func TestPostgresRepo_UpdateBatch(t *testing.T) {
 	int64Val := int64(5)
 
 	tests := []struct {
+		setup   func(mock sqlmock.Sqlmock)
 		name    string
 		metrics []models.Metrics
-		setup   func(mock sqlmock.Sqlmock)
 		wantErr bool
 	}{
 		{

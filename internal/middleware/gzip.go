@@ -53,7 +53,7 @@ func GzipMiddleware(next http.Handler) http.Handler {
 				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 				return
 			}
-			defer gzReader.Close()
+			defer func() { _ = gzReader.Close() }()
 			r.Body = gzReader
 		}
 
@@ -73,7 +73,9 @@ func GzipMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(gzw, r)
 
 		if gzw.written {
-			gz.Close()
+			if err := gz.Close(); err != nil {
+				logger.Log.Debug("gzip close error", zap.Error(err))
+			}
 		}
 		gzipWriterPool.Put(gz)
 	})

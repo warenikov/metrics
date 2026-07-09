@@ -10,9 +10,9 @@ import (
 
 // AuditEvent описывает одно событие аудита.
 type AuditEvent struct {
-	TS        int64    `json:"ts"`
-	Metrics   []string `json:"metrics"`
 	IPAddress string   `json:"ip_address"`
+	Metrics   []string `json:"metrics"`
+	TS        int64    `json:"ts"`
 }
 
 // Observer — получатель событий аудита.
@@ -29,8 +29,8 @@ const (
 // Emit не блокирует вызывающего: событие кладётся в буферизованный канал.
 // При заполненном буфере событие дропается с предупреждением в лог.
 type Broker struct {
-	observers []Observer
 	queue     chan AuditEvent
+	observers []Observer
 	wg        sync.WaitGroup
 }
 

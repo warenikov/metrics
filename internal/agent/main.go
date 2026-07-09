@@ -46,16 +46,16 @@ func isRetryableNetworkError(err error) bool {
 }
 
 type MetricaAgent struct {
-	mu             sync.RWMutex
 	ms             *runtime.MemStats
 	gauges         *models.GaugeMertics
 	counters       *models.CounterMertics
+	serverAddr     string
+	key            string
 	cpuUtilization []float64
 	pollInterval   time.Duration
 	sendInterval   time.Duration
-	serverAddr     string
-	key            string
 	rateLimit      int
+	mu             sync.RWMutex
 }
 
 func resolveKey(key string) string {
@@ -365,15 +365,15 @@ func (m *MetricaAgent) postBatchRequest(data []byte) {
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		reader := io.Reader(resp.Body)
 		if resp.Header.Get("Content-Encoding") == "gzip" {
-			gz, err := compress.NewReader(resp.Body)
-			if err != nil {
-				return err
+			gz, gzErr := compress.NewReader(resp.Body)
+			if gzErr != nil {
+				return gzErr
 			}
-			defer gz.Close()
+			defer func() { _ = gz.Close() }()
 			reader = gz
 		}
 		_, err = io.ReadAll(reader)
@@ -437,15 +437,15 @@ func (m *MetricaAgent) postRequest(data []byte, name string) {
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		reader := io.Reader(resp.Body)
 		if resp.Header.Get("Content-Encoding") == "gzip" {
-			gz, err := compress.NewReader(resp.Body)
-			if err != nil {
-				return err
+			gz, gzErr := compress.NewReader(resp.Body)
+			if gzErr != nil {
+				return gzErr
 			}
-			defer gz.Close()
+			defer func() { _ = gz.Close() }()
 			reader = gz
 		}
 		_, err = io.ReadAll(reader)

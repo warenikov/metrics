@@ -139,7 +139,7 @@ func (r *PostgresRepo) updateBatchTx(ctx context.Context, metrics []models.Metri
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	gaugeQ := `
 		INSERT INTO metrics (id, mtype, value, delta)
@@ -212,12 +212,12 @@ func (r *PostgresRepo) GetListMetrics(ctx context.Context) ([]models.Metrics, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var metrics []models.Metrics
 	for rows.Next() {
 		var m models.Metrics
-		if err := rows.Scan(&m.ID, &m.MType, &m.Value, &m.Delta); err != nil {
+		if err = rows.Scan(&m.ID, &m.MType, &m.Value, &m.Delta); err != nil {
 			return nil, fmt.Errorf("failed to scan metric: %w", err)
 		}
 		metrics = append(metrics, m)

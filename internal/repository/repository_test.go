@@ -179,8 +179,8 @@ func TestMemStorage_GetListMetrics_Table(t *testing.T) {
 	intPtr := func(i int64) *int64 { return &i }
 
 	tests := []struct {
-		name         string
 		initialState map[string]models.Metrics
+		name         string
 		expectedLen  int
 	}{
 		{

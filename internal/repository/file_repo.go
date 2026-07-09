@@ -16,9 +16,9 @@ const filePermissions = 0666
 
 type FileBackedRepo struct {
 	mem            *MemStorage
+	file           *os.File
 	filePath       string
 	interval       time.Duration
-	file           *os.File
 	SyncDumpToFile bool
 }
 
@@ -145,10 +145,10 @@ func (r *FileBackedRepo) saveToFile() error {
 		return err
 	}
 
-	if err := r.file.Truncate(0); err != nil {
+	if err = r.file.Truncate(0); err != nil {
 		return err
 	}
-	if _, err := r.file.Seek(0, 0); err != nil {
+	if _, err = r.file.Seek(0, 0); err != nil {
 		return err
 	}
 
