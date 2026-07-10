@@ -51,6 +51,43 @@ git fetch template && git checkout template/v2 .github
 go build -ldflags "-X main.buildVersion=v1.0.0 -X main.buildDate=$(date +%Y-%m-%d) -X main.buildCommit=$(git rev-parse --short HEAD)" -o server ./cmd/server
 ```
 
+## Конфигурация через JSON-файл (iter25)
+
+Флаг `-c` / `-config` или переменная окружения `CONFIG` задают путь до JSON-файла конфигурации. Поддерживаются все опции; приоритет источников (от высшего к низшему): **флаг > переменная окружения > файл > значение по умолчанию**. Если поле не задано ни флагом, ни env — берётся значение из файла (если оно там есть); если и в файле нет — остаётся дефолт.
+
+Интервалы в файле задаются в формате `time.Duration` (например `"1s"`, `"500ms"`), а не числом секунд.
+
+Формат для сервера:
+
+```json
+{
+    "address": "localhost:8080",
+    "restore": true,
+    "store_interval": "1s",
+    "store_file": "/path/to/file.db",
+    "database_dsn": "",
+    "crypto_key": "/path/to/key.pem"
+}
+```
+
+Формат для агента:
+
+```json
+{
+    "address": "localhost:8080",
+    "report_interval": "1s",
+    "poll_interval": "1s",
+    "crypto_key": "/path/to/key.pem"
+}
+```
+
+Запуск:
+
+```bash
+./server -config server.json
+./agent -c agent.json
+```
+
 ## Асимметричное шифрование (iter24)
 
 Флаг `-crypto-key` / переменная окружения `CRYPTO_KEY` включают шифрование тел запросов между агентом и сервером:
