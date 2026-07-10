@@ -17,6 +17,11 @@ func TestDuration_UnmarshalJSON(t *testing.T) {
 
 	assert.Error(t, d.UnmarshalJSON([]byte(`"not-a-duration"`)))
 	assert.Error(t, d.UnmarshalJSON([]byte(`123`)))
+
+	// time.ParseDuration happily accepts a leading "-"; without this check the
+	// negative value would later silently wrap around to a huge uint when
+	// applyServerFileConfig converts it to Config.StoreInterval.
+	assert.Error(t, d.UnmarshalJSON([]byte(`"-5s"`)))
 }
 
 func TestLoadFileConfig(t *testing.T) {

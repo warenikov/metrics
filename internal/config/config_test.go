@@ -313,6 +313,13 @@ func TestLoadServerConfig_File(t *testing.T) {
 		_, err := LoadServerConfig()
 		require.Error(t, err)
 	})
+
+	t.Run("negative duration returns error instead of wrapping to a huge uint", func(t *testing.T) {
+		path := writeConfigFile(t, `{"store_interval": "-5s"}`)
+		os.Args = []string{"test_bin", "-c", path}
+		_, err := LoadServerConfig()
+		require.Error(t, err)
+	})
 }
 
 func TestLoadAgentConfig_File(t *testing.T) {
