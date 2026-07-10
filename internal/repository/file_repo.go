@@ -7,6 +7,7 @@ import (
 	"metrics/internal/logger"
 	models "metrics/internal/model"
 	"os"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -19,6 +20,7 @@ type FileBackedRepo struct {
 	file           *os.File
 	filePath       string
 	interval       time.Duration
+	fileMu         sync.Mutex
 	SyncDumpToFile bool
 }
 
@@ -124,13 +126,21 @@ func (r *FileBackedRepo) load() error {
 	return nil
 }
 
-func (r *FileBackedRepo) RunSave() {
+// RunSave periodically saves metrics to file until ctx is cancelled. Callers
+// should cancel ctx before making a final, definitive Save() call on
+// shutdown, so the two never race over the file.
+func (r *FileBackedRepo) RunSave(ctx context.Context) {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		if err := r.saveToFile(); err != nil {
-			logger.Log.Error("Failed to save metrics to file", zap.Error(err))
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := r.saveToFile(); err != nil {
+				logger.Log.Error("Failed to save metrics to file", zap.Error(err))
+			}
 		}
 	}
 }
@@ -139,11 +149,18 @@ func (r *FileBackedRepo) Save() error {
 	return r.saveToFile()
 }
 
+// saveToFile overwrites the backing file with the current in-memory metrics.
+// fileMu serializes callers (periodic RunSave, synchronous per-request saves,
+// and the final shutdown Save()) so their Truncate+Seek+Encode sequences on
+// the shared *os.File never interleave.
 func (r *FileBackedRepo) saveToFile() error {
 	metrics, err := r.mem.GetListMetrics(context.Background())
 	if err != nil {
 		return err
 	}
+
+	r.fileMu.Lock()
+	defer r.fileMu.Unlock()
 
 	if err = r.file.Truncate(0); err != nil {
 		return err
@@ -161,5 +178,7 @@ func (r *FileBackedRepo) saveToFile() error {
 }
 
 func (r *FileBackedRepo) Close() error {
+	r.fileMu.Lock()
+	defer r.fileMu.Unlock()
 	return r.file.Close()
 }

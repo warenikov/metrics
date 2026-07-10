@@ -13,7 +13,6 @@ import (
 	"metrics/internal/service"
 	"metrics/migrations"
 	"metrics/pkg/crypto"
-	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -45,6 +44,9 @@ func main() {
 		logger.Log.Fatal("Failed to initialize logger", zap.Error(err))
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer stop()
+
 	var (
 		repo     service.Repository
 		fileRepo *repository.FileBackedRepo
@@ -73,7 +75,7 @@ func main() {
 			logger.Log.Fatal("Failed to initialize file repository", zap.Error(fileErr))
 		}
 		if cfg.StoreInterval > 0 {
-			go fileRepo.RunSave()
+			go fileRepo.RunSave(ctx)
 		}
 		repo = fileRepo
 		logger.Log.Info("Using file-backed repository", zap.String("path", cfg.FileStoragePath))
@@ -113,9 +115,6 @@ func main() {
 	}
 
 	srv := server.New(cfg, svc, svc, svc, broker, privKey)
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	go func() {
 		if err := srv.Start(); err != nil {

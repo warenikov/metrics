@@ -45,7 +45,7 @@ func main() {
 		pubKey = key
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer stop()
 
 	a := agent.NewMetricaAgent(cfg, pubKey)
