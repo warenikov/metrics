@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"crypto/rsa"
 	"errors"
 	"net/http"
 	"time"
@@ -50,12 +51,17 @@ type Server struct {
 }
 
 // New creates a Server with a chi router, request logging, gzip compression,
-// and optional HMAC verification middleware.
+// and optional HMAC verification and RSA decryption middleware.
 // broker may be nil, in which case audit logging is disabled.
-func New(cfg *config.Config, updater MetricsUpdater, getter MetricsGetter, health HealthChecker, broker *audit.Broker) *Server {
+// privKey may be nil, in which case incoming request bodies are assumed to
+// be unencrypted.
+func New(cfg *config.Config, updater MetricsUpdater, getter MetricsGetter, health HealthChecker, broker *audit.Broker, privKey *rsa.PrivateKey) *Server {
 	r := chi.NewRouter()
 
 	r.Use(middleware.LoggerMiddleware)
+	if privKey != nil {
+		r.Use(middleware.CryptoMiddleware(privKey))
+	}
 	r.Use(middleware.GzipMiddleware)
 	if cfg.Key != "" {
 		r.Use(middleware.HashMiddleware(cfg.Key))

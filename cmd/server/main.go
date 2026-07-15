@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
 	"fmt"
 	"metrics/internal/audit"
 	"metrics/internal/config"
@@ -11,7 +12,7 @@ import (
 	"metrics/internal/server"
 	"metrics/internal/service"
 	"metrics/migrations"
-	"os"
+	"metrics/pkg/crypto"
 	"os/signal"
 	"syscall"
 	"time"
@@ -43,6 +44,9 @@ func main() {
 		logger.Log.Fatal("Failed to initialize logger", zap.Error(err))
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer stop()
+
 	var (
 		repo     service.Repository
 		fileRepo *repository.FileBackedRepo
@@ -71,13 +75,22 @@ func main() {
 			logger.Log.Fatal("Failed to initialize file repository", zap.Error(fileErr))
 		}
 		if cfg.StoreInterval > 0 {
-			go fileRepo.RunSave()
+			go fileRepo.RunSave(ctx)
 		}
 		repo = fileRepo
 		logger.Log.Info("Using file-backed repository", zap.String("path", cfg.FileStoragePath))
 	} else {
 		repo = repository.NewMemStorage()
 		logger.Log.Info("Using in-memory repository")
+	}
+
+	var privKey *rsa.PrivateKey
+	if cfg.CryptoKeyPath != "" {
+		key, keyErr := crypto.LoadPrivateKey(cfg.CryptoKeyPath)
+		if keyErr != nil {
+			logger.Log.Fatal("Invalid crypto key", zap.Error(keyErr))
+		}
+		privKey = key
 	}
 
 	svc := service.NewMetricsService(repo, pgxDB)
@@ -101,10 +114,7 @@ func main() {
 		logger.Log.Info("Audit enabled", zap.Int("sinks", len(auditObservers)))
 	}
 
-	srv := server.New(cfg, svc, svc, svc, broker)
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	srv := server.New(cfg, svc, svc, svc, broker, privKey)
 
 	go func() {
 		if err := srv.Start(); err != nil {

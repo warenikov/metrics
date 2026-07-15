@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +16,7 @@ import (
 	"metrics/internal/logger"
 	models "metrics/internal/model"
 	"metrics/pkg/compress"
+	"metrics/pkg/crypto"
 	"net"
 	"net/http"
 	"os"
@@ -49,6 +52,7 @@ type MetricaAgent struct {
 	ms             *runtime.MemStats
 	gauges         *models.GaugeMertics
 	counters       *models.CounterMertics
+	pubKey         *rsa.PublicKey
 	serverAddr     string
 	key            string
 	cpuUtilization []float64
@@ -67,7 +71,7 @@ func resolveKey(key string) string {
 	return key
 }
 
-func NewMetricaAgent(cfg *config.Config) *MetricaAgent {
+func NewMetricaAgent(cfg *config.Config, pubKey *rsa.PublicKey) *MetricaAgent {
 	srv := fmt.Sprintf("http://%s", cfg.ServerAddr)
 	return &MetricaAgent{
 		ms:           &runtime.MemStats{},
@@ -77,6 +81,7 @@ func NewMetricaAgent(cfg *config.Config) *MetricaAgent {
 		sendInterval: time.Duration(cfg.ReportInterval) * time.Second,
 		serverAddr:   srv,
 		key:          resolveKey(cfg.Key),
+		pubKey:       pubKey,
 		rateLimit:    cfg.RateLimit,
 	}
 }
@@ -341,16 +346,34 @@ func (m *MetricaAgent) SendBatch() {
 	logger.Log.Debug("SendBatch metrics")
 }
 
+// prepareBody gzip-compresses data and, if a public key is configured,
+// encrypts the compressed payload so only the server holding the matching
+// private key can read it.
+func (m *MetricaAgent) prepareBody(data []byte) (io.Reader, error) {
+	compressedData, err := compress.Compress(data)
+	if err != nil {
+		return nil, err
+	}
+	if m.pubKey == nil {
+		return compressedData, nil
+	}
+	encrypted, err := crypto.Encrypt(m.pubKey, compressedData.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewReader(encrypted), nil
+}
+
 func (m *MetricaAgent) postBatchRequest(data []byte) {
 	var lastErr error
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	doRequest := func() error {
-		compressedData, err := compress.Compress(data)
+		body, err := m.prepareBody(data)
 		if err != nil {
 			return err
 		}
-		req, err := http.NewRequest(http.MethodPost, m.serverAddr+"/updates/", compressedData)
+		req, err := http.NewRequest(http.MethodPost, m.serverAddr+"/updates/", body)
 		if err != nil {
 			return err
 		}
@@ -418,11 +441,11 @@ func (m *MetricaAgent) postRequest(data []byte, name string) {
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	doRequest := func() error {
-		compressedData, err := compress.Compress(data)
+		body, err := m.prepareBody(data)
 		if err != nil {
 			return err
 		}
-		req, err := http.NewRequest(http.MethodPost, m.serverAddr+"/update/", compressedData)
+		req, err := http.NewRequest(http.MethodPost, m.serverAddr+"/update/", body)
 		if err != nil {
 			return err
 		}

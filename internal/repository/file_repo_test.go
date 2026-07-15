@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -325,4 +326,79 @@ func TestFileBackedRepo_ImmediateSave(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFileBackedRepo_RunSave_StopsOnContextCancel(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "storage.txt")
+
+	mem := NewMemStorage()
+	repo, err := NewFileBackedRepo(mem, fp, 1, false)
+	require.NoError(t, err)
+	defer func() { _ = repo.Close() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		repo.RunSave(ctx)
+		close(done)
+	}()
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("RunSave did not stop after context cancellation")
+	}
+}
+
+// TestFileBackedRepo_ConcurrentSaves_NoRace exercises the fileMu-protected
+// write path only: the periodic RunSave ticker racing against direct Save()
+// calls, like the real periodic-saver-vs-final-shutdown-save race. It does
+// NOT mutate MemStorage concurrently — MemStorage is documented as
+// thread-unsafe by design (see repository.go), so concurrent reads/writes to
+// it are a separate, pre-existing concern outside this test's scope.
+func TestFileBackedRepo_ConcurrentSaves_NoRace(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "storage.txt")
+
+	mem := NewMemStorage()
+	repo, err := NewFileBackedRepo(mem, fp, 1, false)
+	require.NoError(t, err)
+	defer func() { _ = repo.Close() }()
+
+	v := 1.5
+	_, err = repo.UpdateGauges(context.Background(), models.Metrics{ID: "g", MType: models.Gauge, Value: &v})
+	require.NoError(t, err)
+
+	repo.interval = time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+
+	runSaveDone := make(chan struct{})
+	go func() {
+		repo.RunSave(ctx)
+		close(runSaveDone)
+	}()
+
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = repo.Save()
+		}()
+	}
+	wg.Wait()
+
+	cancel()
+	<-runSaveDone
+
+	// File must contain valid, uncorrupted JSON after all the concurrent writes.
+	data, err := os.ReadFile(fp)
+	require.NoError(t, err)
+	var saved []models.Metrics
+	require.NoError(t, json.Unmarshal(data, &saved))
+	assert.Len(t, saved, 1)
 }
