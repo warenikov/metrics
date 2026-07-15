@@ -85,6 +85,45 @@ func TestCryptoMiddleware_BadCiphertext_Returns400(t *testing.T) {
 	assert.False(t, called)
 }
 
+func TestCryptoMiddleware_ChunkedRequest_StillDecrypted(t *testing.T) {
+	priv := generateKey(t)
+	plaintext := []byte(`[{"id":"Alloc","type":"gauge","value":1.5}]`)
+	ciphertext, err := crypto.Encrypt(&priv.PublicKey, plaintext)
+	require.NoError(t, err)
+
+	var received []byte
+	handler := CryptoMiddleware(priv)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		received = b
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/updates/", bytes.NewReader(ciphertext))
+	req.ContentLength = -1 // net/http sets this for Transfer-Encoding: chunked requests
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code, "a chunked request (ContentLength == -1) must still be decrypted, not skipped")
+	assert.Equal(t, plaintext, received)
+}
+
+func TestCryptoMiddleware_OversizedBody_Returns413(t *testing.T) {
+	priv := generateKey(t)
+	called := false
+	handler := CryptoMiddleware(priv)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+
+	oversized := bytes.Repeat([]byte{0x01}, maxEncryptedBodySize+1)
+	req := httptest.NewRequest(http.MethodPost, "/updates/", bytes.NewReader(oversized))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	assert.False(t, called)
+}
+
 func TestCryptoMiddleware_WrongKey_Returns400(t *testing.T) {
 	encryptKey := generateKey(t)
 	decryptKey := generateKey(t)

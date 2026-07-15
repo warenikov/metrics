@@ -47,7 +47,6 @@ func LoadServerConfig() (*Config, error) {
 		DBDSN:           "",
 		Key:             "",
 	}
-	defaults := *cfg
 
 	if err := loadFromEnv(cfg); err != nil {
 		return nil, fmt.Errorf("invalid environment config: %w", err)
@@ -75,7 +74,7 @@ func LoadServerConfig() (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid config file: %w", err)
 		}
-		applyServerFileConfig(cfg, defaults, fc)
+		applyServerFileConfig(cfg, fc, visitedFlags(fs))
 	}
 
 	return cfg, nil
@@ -94,7 +93,6 @@ func LoadAgentConfig() (*Config, error) {
 		PollInterval:   2,
 		LogLevel:       "info",
 	}
-	defaults := *cfg
 
 	if err := loadFromEnv(cfg); err != nil {
 		return nil, fmt.Errorf("invalid environment config: %w", err)
@@ -121,7 +119,7 @@ func LoadAgentConfig() (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid config file: %w", err)
 		}
-		applyAgentFileConfig(cfg, defaults, fc)
+		applyAgentFileConfig(cfg, fc, visitedFlags(fs))
 	}
 
 	return cfg, nil

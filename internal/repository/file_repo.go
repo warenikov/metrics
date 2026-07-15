@@ -151,16 +151,19 @@ func (r *FileBackedRepo) Save() error {
 
 // saveToFile overwrites the backing file with the current in-memory metrics.
 // fileMu serializes callers (periodic RunSave, synchronous per-request saves,
-// and the final shutdown Save()) so their Truncate+Seek+Encode sequences on
-// the shared *os.File never interleave.
+// and the final shutdown Save()) so their read-snapshot-then-write sequences
+// never interleave: taking the snapshot under the same lock as the write
+// guarantees whichever call acquires fileMu last also writes the freshest
+// data, instead of possibly overwriting a newer save with a stale snapshot
+// it read before waiting on the lock.
 func (r *FileBackedRepo) saveToFile() error {
+	r.fileMu.Lock()
+	defer r.fileMu.Unlock()
+
 	metrics, err := r.mem.GetListMetrics(context.Background())
 	if err != nil {
 		return err
 	}
-
-	r.fileMu.Lock()
-	defer r.fileMu.Unlock()
 
 	if err = r.file.Truncate(0); err != nil {
 		return err

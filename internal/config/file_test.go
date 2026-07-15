@@ -10,10 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDuration_UnmarshalJSON(t *testing.T) {
-	var d duration
-	require.NoError(t, d.UnmarshalJSON([]byte(`"1s500ms"`)))
-	assert.Equal(t, 1500*time.Millisecond, time.Duration(d))
+func TestJSONDuration_UnmarshalJSON(t *testing.T) {
+	var d jsonDuration
+	require.NoError(t, d.UnmarshalJSON([]byte(`"90s"`)))
+	assert.Equal(t, 90*time.Second, time.Duration(d))
+
+	require.NoError(t, d.UnmarshalJSON([]byte(`"2m"`)))
+	assert.Equal(t, 2*time.Minute, time.Duration(d))
 
 	assert.Error(t, d.UnmarshalJSON([]byte(`"not-a-duration"`)))
 	assert.Error(t, d.UnmarshalJSON([]byte(`123`)))
@@ -22,6 +25,11 @@ func TestDuration_UnmarshalJSON(t *testing.T) {
 	// negative value would later silently wrap around to a huge uint when
 	// applyServerFileConfig converts it to Config.StoreInterval.
 	assert.Error(t, d.UnmarshalJSON([]byte(`"-5s"`)))
+
+	// Sub-second precision would otherwise be silently truncated when
+	// converted to Config's plain integer-seconds fields (e.g. "1500ms" -> 1),
+	// so it's rejected outright instead of guessing what the user meant.
+	assert.Error(t, d.UnmarshalJSON([]byte(`"1500ms"`)))
 }
 
 func TestLoadFileConfig(t *testing.T) {
@@ -82,30 +90,42 @@ func TestLoadFileConfig(t *testing.T) {
 	})
 }
 
-func TestApplyServerFileConfig_OnlyFillsDefaults(t *testing.T) {
-	defaults := Config{ServerAddr: "localhost:8080", Restore: true, StoreInterval: 300, FileStoragePath: "storage.txt"}
-	cfg := defaults
-	cfg.ServerAddr = "already-set-by-flag" // simulate a flag override
+func TestApplyServerFileConfig_SkipsExplicitlySetFields(t *testing.T) {
+	cfg := &Config{ServerAddr: "localhost:8080", Restore: true, StoreInterval: 300, FileStoragePath: "storage.txt"}
 
 	addr := "from-file"
 	restore := false
 	fc := &fileConfig{Address: &addr, Restore: &restore}
 
-	applyServerFileConfig(&cfg, defaults, fc)
+	// "a" was explicitly passed on the command line (simulated via
+	// explicitFlags), even though its value happens to equal the default.
+	applyServerFileConfig(cfg, fc, map[string]bool{"a": true})
 
-	assert.Equal(t, "already-set-by-flag", cfg.ServerAddr, "flag-set field must not be overwritten by file")
-	assert.False(t, cfg.Restore, "default-value field must be overwritten by file")
+	assert.Equal(t, "localhost:8080", cfg.ServerAddr, "flag-set field must not be overwritten by file, even if its value equals the default")
+	assert.False(t, cfg.Restore, "field not set by flag/env must be overwritten by file")
 }
 
-func TestApplyAgentFileConfig_OnlyFillsDefaults(t *testing.T) {
-	defaults := Config{ServerAddr: "localhost:8080", ReportInterval: 10, PollInterval: 2}
-	cfg := defaults
-	cfg.PollInterval = 42 // simulate an env override
+func TestApplyServerFileConfig_EnvVarWins(t *testing.T) {
+	t.Setenv("ADDRESS", "localhost:8080") // env-set, value happens to equal the default
 
-	pollFromFile := duration(9 * time.Second)
+	cfg := &Config{ServerAddr: "localhost:8080"}
+	addr := "from-file"
+	fc := &fileConfig{Address: &addr}
+
+	applyServerFileConfig(cfg, fc, nil)
+
+	assert.Equal(t, "localhost:8080", cfg.ServerAddr, "env-set field must not be overwritten by file, even if its value equals the default")
+}
+
+func TestApplyAgentFileConfig_SkipsExplicitlySetFields(t *testing.T) {
+	cfg := &Config{ServerAddr: "localhost:8080", ReportInterval: 10, PollInterval: 2}
+
+	pollFromFile := jsonDuration(9 * time.Second)
 	fc := &fileConfig{PollInterval: &pollFromFile}
 
-	applyAgentFileConfig(&cfg, defaults, fc)
+	t.Setenv("POLL_INTERVAL", "2") // env-set, value happens to equal the default
 
-	assert.Equal(t, 42, cfg.PollInterval, "env-set field must not be overwritten by file")
+	applyAgentFileConfig(cfg, fc, nil)
+
+	assert.Equal(t, 2, cfg.PollInterval, "env-set field must not be overwritten by file, even if its value equals the default")
 }

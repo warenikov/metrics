@@ -294,6 +294,19 @@ func TestLoadServerConfig_File(t *testing.T) {
 		assert.Equal(t, "file.db", cfg.FileStoragePath, "fields not set by env still come from file")
 	})
 
+	t.Run("flag matching the default still wins over file", func(t *testing.T) {
+		// Regression test: file priority must be based on whether the flag was
+		// actually passed (flag.Visit), not on comparing the resulting value
+		// against the hardcoded default — otherwise a flag whose value happens
+		// to equal the default would be silently overridden by the file.
+		path := writeConfigFile(t, fileContent)
+		os.Args = []string{"test_bin", "-c", path, "-a", "localhost:8080"}
+
+		cfg, err := LoadServerConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "localhost:8080", cfg.ServerAddr, "explicitly-passed flag must win even though its value equals the default")
+	})
+
 	t.Run("missing file returns error", func(t *testing.T) {
 		os.Args = []string{"test_bin", "-c", filepath.Join(t.TempDir(), "missing.json")}
 		_, err := LoadServerConfig()
