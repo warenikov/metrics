@@ -21,6 +21,7 @@ type Config struct {
 	Key             string `env:"KEY"`
 	CryptoKeyPath   string `env:"CRYPTO_KEY"`
 	ConfigPath      string `env:"CONFIG"`
+	TrustedSubnet   string `env:"TRUSTED_SUBNET"`
 	AuditFile       string `env:"AUDIT_FILE"`
 	AuditURL        string `env:"AUDIT_URL"`
 	ReportInterval  int    `env:"REPORT_INTERVAL"`
@@ -63,6 +64,7 @@ func LoadServerConfig() (*Config, error) {
 	fs.StringVar(&cfg.CryptoKeyPath, "crypto-key", cfg.CryptoKeyPath, "Path to RSA private key file for decrypting request bodies")
 	fs.StringVar(&cfg.ConfigPath, "c", cfg.ConfigPath, "Path to JSON config file")
 	fs.StringVar(&cfg.ConfigPath, "config", cfg.ConfigPath, "Path to JSON config file")
+	fs.StringVar(&cfg.TrustedSubnet, "t", cfg.TrustedSubnet, "Trusted subnet (CIDR) for the X-Real-IP check")
 	fs.StringVar(&cfg.AuditFile, "audit-file", cfg.AuditFile, "Audit log file path")
 	fs.StringVar(&cfg.AuditURL, "audit-url", cfg.AuditURL, "Audit log remote URL")
 	if err := fs.Parse(flagArgs()); err != nil {

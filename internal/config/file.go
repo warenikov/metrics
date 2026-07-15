@@ -42,6 +42,7 @@ type fileConfig struct {
 	StoreFile      *string       `json:"store_file"`
 	DatabaseDSN    *string       `json:"database_dsn"`
 	CryptoKey      *string       `json:"crypto_key"`
+	TrustedSubnet  *string       `json:"trusted_subnet"`
 	StoreInterval  *jsonDuration `json:"store_interval"`
 	ReportInterval *jsonDuration `json:"report_interval"`
 	PollInterval   *jsonDuration `json:"poll_interval"`
@@ -109,6 +110,9 @@ func applyServerFileConfig(cfg *Config, fc *fileConfig, explicitFlags map[string
 	}
 	if fc.CryptoKey != nil && !isSet(explicitFlags, "CRYPTO_KEY", "crypto-key") {
 		cfg.CryptoKeyPath = *fc.CryptoKey
+	}
+	if fc.TrustedSubnet != nil && !isSet(explicitFlags, "TRUSTED_SUBNET", "t") {
+		cfg.TrustedSubnet = *fc.TrustedSubnet
 	}
 }
 

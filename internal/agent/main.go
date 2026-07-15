@@ -48,6 +48,24 @@ func isRetryableNetworkError(err error) bool {
 	return errors.As(err, &netErr)
 }
 
+// localIP returns the outbound IP address of this host: the source address
+// the OS would use to reach an external host. Dialing UDP performs no
+// handshake and sends no packets, so this is safe to call even without
+// network connectivity to the target.
+func localIP() (string, error) {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return "", fmt.Errorf("determine local IP: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return "", fmt.Errorf("determine local IP: unexpected local address type %T", conn.LocalAddr())
+	}
+	return addr.IP.String(), nil
+}
+
 type MetricaAgent struct {
 	ms             *runtime.MemStats
 	gauges         *models.GaugeMertics
@@ -55,6 +73,7 @@ type MetricaAgent struct {
 	pubKey         *rsa.PublicKey
 	serverAddr     string
 	key            string
+	hostIP         string
 	cpuUtilization []float64
 	pollInterval   time.Duration
 	sendInterval   time.Duration
@@ -73,6 +92,10 @@ func resolveKey(key string) string {
 
 func NewMetricaAgent(cfg *config.Config, pubKey *rsa.PublicKey) *MetricaAgent {
 	srv := fmt.Sprintf("http://%s", cfg.ServerAddr)
+	hostIP, err := localIP()
+	if err != nil {
+		logger.Log.Error("failed to determine local IP for X-Real-IP header", zap.Error(err))
+	}
 	return &MetricaAgent{
 		ms:           &runtime.MemStats{},
 		gauges:       &models.GaugeMertics{},
@@ -81,6 +104,7 @@ func NewMetricaAgent(cfg *config.Config, pubKey *rsa.PublicKey) *MetricaAgent {
 		sendInterval: time.Duration(cfg.ReportInterval) * time.Second,
 		serverAddr:   srv,
 		key:          resolveKey(cfg.Key),
+		hostIP:       hostIP,
 		pubKey:       pubKey,
 		rateLimit:    cfg.RateLimit,
 	}
@@ -380,6 +404,9 @@ func (m *MetricaAgent) postBatchRequest(data []byte) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
+		if m.hostIP != "" {
+			req.Header.Set("X-Real-IP", m.hostIP)
+		}
 		if m.key != "" {
 			req.Header.Set("HashSHA256", computeHMAC(data, m.key))
 		}
@@ -452,6 +479,9 @@ func (m *MetricaAgent) postRequest(data []byte, name string) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
+		if m.hostIP != "" {
+			req.Header.Set("X-Real-IP", m.hostIP)
+		}
 		if m.key != "" {
 			req.Header.Set("HashSHA256", computeHMAC(data, m.key))
 		}

@@ -237,7 +237,8 @@ func TestLoadServerConfig_File(t *testing.T) {
 		"store_interval": "15s",
 		"store_file": "file.db",
 		"database_dsn": "file-dsn",
-		"crypto_key": "file-key.pem"
+		"crypto_key": "file-key.pem",
+		"trusted_subnet": "192.168.1.0/24"
 	}`
 
 	t.Run("file fills in unset values", func(t *testing.T) {
@@ -252,6 +253,32 @@ func TestLoadServerConfig_File(t *testing.T) {
 		assert.Equal(t, "file.db", cfg.FileStoragePath)
 		assert.Equal(t, "file-dsn", cfg.DBDSN)
 		assert.Equal(t, "file-key.pem", cfg.CryptoKeyPath)
+		assert.Equal(t, "192.168.1.0/24", cfg.TrustedSubnet)
+	})
+
+	t.Run("-t flag sets trusted subnet", func(t *testing.T) {
+		os.Args = []string{"test_bin", "-t", "10.0.0.0/8"}
+
+		cfg, err := LoadServerConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "10.0.0.0/8", cfg.TrustedSubnet)
+	})
+
+	t.Run("TRUSTED_SUBNET env var sets trusted subnet", func(t *testing.T) {
+		t.Setenv("TRUSTED_SUBNET", "172.16.0.0/12")
+		os.Args = []string{"test_bin"}
+
+		cfg, err := LoadServerConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "172.16.0.0/12", cfg.TrustedSubnet)
+	})
+
+	t.Run("empty trusted subnet by default", func(t *testing.T) {
+		os.Args = []string{"test_bin"}
+
+		cfg, err := LoadServerConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "", cfg.TrustedSubnet)
 	})
 
 	t.Run("--config long flag works the same as -c", func(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 	"metrics/internal/service"
 	"metrics/migrations"
 	"metrics/pkg/crypto"
+	"net"
 	"os/signal"
 	"syscall"
 	"time"
@@ -93,6 +94,15 @@ func main() {
 		privKey = key
 	}
 
+	var trustedSubnet *net.IPNet
+	if cfg.TrustedSubnet != "" {
+		_, subnet, subnetErr := net.ParseCIDR(cfg.TrustedSubnet)
+		if subnetErr != nil {
+			logger.Log.Fatal("Invalid trusted subnet", zap.Error(subnetErr))
+		}
+		trustedSubnet = subnet
+	}
+
 	svc := service.NewMetricsService(repo, pgxDB)
 
 	var auditObservers []audit.Observer
@@ -114,7 +124,7 @@ func main() {
 		logger.Log.Info("Audit enabled", zap.Int("sinks", len(auditObservers)))
 	}
 
-	srv := server.New(cfg, svc, svc, svc, broker, privKey)
+	srv := server.New(cfg, svc, svc, svc, broker, privKey, trustedSubnet)
 
 	go func() {
 		if err := srv.Start(); err != nil {

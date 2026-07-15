@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -132,6 +133,14 @@ func TestResolveKey(t *testing.T) {
 	assert.Equal(t, f.Name(), resolveKey(f.Name()))
 }
 
+func TestLocalIP(t *testing.T) {
+	ip, err := localIP()
+	if err != nil {
+		t.Skipf("no outbound network route available in this environment: %v", err)
+	}
+	assert.NotNil(t, net.ParseIP(ip), "localIP must return a parseable IP address")
+}
+
 func TestNewMetricaAgent(t *testing.T) {
 	cfg := &config.Config{
 		ServerAddr:     "localhost:8080",
@@ -232,6 +241,49 @@ func TestSendBatch_PostsToServer(t *testing.T) {
 	m.SendBatch()
 
 	assert.Equal(t, int32(1), reqCount.Load())
+}
+
+func TestSendBatch_SetsXRealIPHeader(t *testing.T) {
+	var receivedIP string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedIP = r.Header.Get("X-Real-IP")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := &MetricaAgent{
+		ms:         &runtime.MemStats{},
+		gauges:     &models.GaugeMertics{},
+		counters:   &models.CounterMertics{},
+		serverAddr: srv.URL,
+		hostIP:     "203.0.113.42",
+	}
+	runtime.ReadMemStats(m.ms)
+	m.collectMerticsManual()
+	m.SendBatch()
+
+	assert.Equal(t, "203.0.113.42", receivedIP)
+}
+
+func TestSendBatch_NoHostIP_OmitsXRealIPHeader(t *testing.T) {
+	var sawHeader bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, sawHeader = r.Header["X-Real-Ip"]
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := &MetricaAgent{
+		ms:         &runtime.MemStats{},
+		gauges:     &models.GaugeMertics{},
+		counters:   &models.CounterMertics{},
+		serverAddr: srv.URL,
+	}
+	runtime.ReadMemStats(m.ms)
+	m.collectMerticsManual()
+	m.SendBatch()
+
+	assert.False(t, sawHeader, "X-Real-IP must be omitted when the host IP could not be determined")
 }
 
 func TestSendBatch_EncryptsBodyWithPublicKey(t *testing.T) {
