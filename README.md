@@ -101,6 +101,25 @@ go build -ldflags "-X main.buildVersion=v1.0.0 -X main.buildDate=$(date +%Y-%m-%
 ./server -t 192.168.1.0/24
 ```
 
+## gRPC (iter28)
+
+Помимо HTTP, сервер и агент умеют обмениваться метриками по gRPC (протокол — `api/metrics.proto`, сгенерированный код — `internal/proto`). Флаг `-g` / переменная окружения `GRPC_ADDRESS` задают адрес: для сервера — куда слушать (в дополнение к HTTP, не вместо), для агента — куда подключаться. Если у агента задан `-g`, батчи метрик отправляются **только** по gRPC (метод `Metrics/UpdateMetrics`), HTTP для этого не используется.
+
+Проверка доверенной подсети (см. выше) на gRPC-транспорте реализована через `UnaryInterceptor`: агент передаёт свой IP в метаданных запроса с ключом `x-real-ip`, сервер при несовпадении с `trusted_subnet` возвращает ошибку `codes.PermissionDenied`.
+
+```bash
+./server -g localhost:3200 -t 192.168.1.0/24
+./agent -g localhost:3200
+```
+
+Перегенерация кода из `.proto` (после правки `api/metrics.proto`):
+
+```bash
+protoc --go_out=. --go_opt=module=metrics \
+       --go-grpc_out=. --go-grpc_opt=module=metrics \
+       api/metrics.proto
+```
+
 ## Асимметричное шифрование (iter24)
 
 Флаг `-crypto-key` / переменная окружения `CRYPTO_KEY` включают шифрование тел запросов между агентом и сервером:

@@ -7,11 +7,14 @@ import (
 	"metrics/internal/agent"
 	"metrics/internal/config"
 	"metrics/internal/logger"
+	pb "metrics/internal/proto"
 	"metrics/pkg/crypto"
 	"os/signal"
 	"syscall"
 
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Set at build time via -ldflags, see README.md.
@@ -45,9 +48,19 @@ func main() {
 		pubKey = key
 	}
 
+	var grpcClient pb.MetricsClient
+	if cfg.GRPCAddr != "" {
+		conn, connErr := grpc.NewClient(cfg.GRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if connErr != nil {
+			logger.Log.Fatal("Failed to create gRPC client", zap.Error(connErr))
+		}
+		defer func() { _ = conn.Close() }()
+		grpcClient = pb.NewMetricsClient(conn)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer stop()
 
-	a := agent.NewMetricaAgent(cfg, pubKey)
+	a := agent.NewMetricaAgent(cfg, pubKey, grpcClient)
 	a.Run(ctx)
 }

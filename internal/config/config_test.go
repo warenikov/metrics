@@ -227,6 +227,36 @@ func TestLoadAgentConfig(t *testing.T) {
 	}
 }
 
+func TestLoadAgentConfig_GRPCAddr(t *testing.T) {
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	t.Run("-g flag sets gRPC address", func(t *testing.T) {
+		os.Args = []string{"test_bin", "-g", "localhost:3200"}
+
+		cfg, err := LoadAgentConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "localhost:3200", cfg.GRPCAddr)
+	})
+
+	t.Run("GRPC_ADDRESS env var sets gRPC address", func(t *testing.T) {
+		t.Setenv("GRPC_ADDRESS", "localhost:3201")
+		os.Args = []string{"test_bin"}
+
+		cfg, err := LoadAgentConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "localhost:3201", cfg.GRPCAddr)
+	})
+
+	t.Run("empty by default", func(t *testing.T) {
+		os.Args = []string{"test_bin"}
+
+		cfg, err := LoadAgentConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "", cfg.GRPCAddr)
+	})
+}
+
 func TestLoadServerConfig_File(t *testing.T) {
 	originalArgs := os.Args
 	defer func() { os.Args = originalArgs }()
@@ -279,6 +309,23 @@ func TestLoadServerConfig_File(t *testing.T) {
 		cfg, err := LoadServerConfig()
 		require.NoError(t, err)
 		assert.Equal(t, "", cfg.TrustedSubnet)
+	})
+
+	t.Run("-g flag sets gRPC address", func(t *testing.T) {
+		os.Args = []string{"test_bin", "-g", "localhost:3200"}
+
+		cfg, err := LoadServerConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "localhost:3200", cfg.GRPCAddr)
+	})
+
+	t.Run("GRPC_ADDRESS env var sets gRPC address", func(t *testing.T) {
+		t.Setenv("GRPC_ADDRESS", "localhost:3201")
+		os.Args = []string{"test_bin"}
+
+		cfg, err := LoadServerConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "localhost:3201", cfg.GRPCAddr)
 	})
 
 	t.Run("--config long flag works the same as -c", func(t *testing.T) {

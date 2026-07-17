@@ -15,6 +15,8 @@ import (
 	"metrics/internal/config"
 	"metrics/internal/logger"
 	models "metrics/internal/model"
+	pb "metrics/internal/proto"
+	"metrics/internal/protoconv"
 	"metrics/pkg/compress"
 	"metrics/pkg/crypto"
 	"net"
@@ -29,6 +31,9 @@ import (
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -46,6 +51,22 @@ func computeHMAC(body []byte, key string) string {
 func isRetryableNetworkError(err error) bool {
 	var netErr net.Error
 	return errors.As(err, &netErr)
+}
+
+// isRetryableGRPCError reports whether err represents a transient gRPC
+// failure worth retrying, as opposed to a terminal one (e.g. PermissionDenied,
+// InvalidArgument) that would fail identically on every retry.
+func isRetryableGRPCError(err error) bool {
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	switch st.Code() {
+	case codes.Unavailable, codes.DeadlineExceeded, codes.ResourceExhausted, codes.Aborted:
+		return true
+	default:
+		return false
+	}
 }
 
 // localIP returns the outbound IP address of this host: the source address
@@ -71,6 +92,7 @@ type MetricaAgent struct {
 	gauges         *models.GaugeMertics
 	counters       *models.CounterMertics
 	pubKey         *rsa.PublicKey
+	grpcClient     pb.MetricsClient
 	serverAddr     string
 	key            string
 	hostIP         string
@@ -90,7 +112,7 @@ func resolveKey(key string) string {
 	return key
 }
 
-func NewMetricaAgent(cfg *config.Config, pubKey *rsa.PublicKey) *MetricaAgent {
+func NewMetricaAgent(cfg *config.Config, pubKey *rsa.PublicKey, grpcClient pb.MetricsClient) *MetricaAgent {
 	srv := fmt.Sprintf("http://%s", cfg.ServerAddr)
 	hostIP, err := localIP()
 	if err != nil {
@@ -106,6 +128,7 @@ func NewMetricaAgent(cfg *config.Config, pubKey *rsa.PublicKey) *MetricaAgent {
 		key:          resolveKey(cfg.Key),
 		hostIP:       hostIP,
 		pubKey:       pubKey,
+		grpcClient:   grpcClient,
 		rateLimit:    cfg.RateLimit,
 	}
 }
@@ -203,13 +226,23 @@ func (m *MetricaAgent) sender(ctx context.Context, jobs chan<- []models.Metrics)
 
 func (m *MetricaAgent) worker(jobs <-chan []models.Metrics) {
 	for batch := range jobs {
-		data, err := json.Marshal(batch)
-		if err != nil {
-			logger.Log.Error("failed to marshal batch", zap.Error(err))
-			continue
-		}
-		m.postBatchRequest(data)
+		m.sendBatch(batch)
 	}
+}
+
+// sendBatch sends batch via gRPC if a client is configured, otherwise falls
+// back to the HTTP JSON transport.
+func (m *MetricaAgent) sendBatch(batch []models.Metrics) {
+	if m.grpcClient != nil {
+		m.sendBatchGRPC(batch)
+		return
+	}
+	data, err := json.Marshal(batch)
+	if err != nil {
+		logger.Log.Error("failed to marshal batch", zap.Error(err))
+		return
+	}
+	m.postBatchRequest(data)
 }
 
 func (m *MetricaAgent) Poll() error {
@@ -361,13 +394,38 @@ func (m *MetricaAgent) collectBatch() []models.Metrics {
 
 func (m *MetricaAgent) SendBatch() {
 	batch := m.collectBatch()
-	data, err := json.Marshal(batch)
-	if err != nil {
-		logger.Log.Error("failed to marshal batch", zap.Error(err))
-		return
-	}
-	m.postBatchRequest(data)
+	m.sendBatch(batch)
 	logger.Log.Debug("SendBatch metrics")
+}
+
+// sendBatchGRPC sends batch to the server over gRPC, retrying transient
+// failures with the same backoff schedule as the HTTP transport.
+func (m *MetricaAgent) sendBatchGRPC(batch []models.Metrics) {
+	req := &pb.UpdateMetricsRequest{Metrics: protoconv.ToProto(batch)}
+
+	doRequest := func() error {
+		ctx := context.Background()
+		if m.hostIP != "" {
+			ctx = metadata.AppendToOutgoingContext(ctx, "x-real-ip", m.hostIP)
+		}
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		_, err := m.grpcClient.UpdateMetrics(ctx, req)
+		return err
+	}
+
+	lastErr := doRequest()
+	for _, d := range agentRetryDelays {
+		if lastErr == nil || !isRetryableGRPCError(lastErr) {
+			break
+		}
+		time.Sleep(d)
+		lastErr = doRequest()
+	}
+	if lastErr != nil {
+		logger.Log.Error("failed to send batch via gRPC", zap.Error(lastErr))
+	}
 }
 
 // prepareBody gzip-compresses data and, if a public key is configured,

@@ -20,11 +20,17 @@ import (
 
 	"metrics/internal/config"
 	models "metrics/internal/model"
+	pb "metrics/internal/proto"
 	"metrics/pkg/compress"
 	"metrics/pkg/crypto"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 func TestCollectBatchIncludesGopsutilMetrics(t *testing.T) {
@@ -148,13 +154,14 @@ func TestNewMetricaAgent(t *testing.T) {
 		PollInterval:   2,
 		RateLimit:      3,
 	}
-	a := NewMetricaAgent(cfg, nil)
+	a := NewMetricaAgent(cfg, nil, nil)
 	require.NotNil(t, a)
 	assert.Equal(t, "http://localhost:8080", a.serverAddr)
 	assert.Equal(t, 2*time.Second, a.pollInterval)
 	assert.Equal(t, 10*time.Second, a.sendInterval)
 	assert.Equal(t, 3, a.rateLimit)
 	assert.Nil(t, a.pubKey)
+	assert.Nil(t, a.grpcClient)
 }
 
 func TestNewMetricaAgent_WithPublicKey(t *testing.T) {
@@ -162,7 +169,7 @@ func TestNewMetricaAgent_WithPublicKey(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := &config.Config{ServerAddr: "localhost:8080"}
-	a := NewMetricaAgent(cfg, &key.PublicKey)
+	a := NewMetricaAgent(cfg, &key.PublicKey, nil)
 	require.NotNil(t, a.pubKey)
 	assert.Equal(t, key.PublicKey.N, a.pubKey.N)
 }
@@ -324,6 +331,68 @@ func TestSendBatch_EncryptsBodyWithPublicKey(t *testing.T) {
 	var batch []models.Metrics
 	require.NoError(t, json.Unmarshal(plain, &batch))
 	assert.NotEmpty(t, batch)
+}
+
+type stubMetricsServer struct {
+	pb.UnimplementedMetricsServer
+	receivedXRealIP string
+	receivedMetrics []*pb.Metric
+}
+
+func (s *stubMetricsServer) UpdateMetrics(ctx context.Context, req *pb.UpdateMetricsRequest) (*pb.UpdateMetricsResponse, error) {
+	s.receivedMetrics = req.GetMetrics()
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if v := md.Get("x-real-ip"); len(v) > 0 {
+			s.receivedXRealIP = v[0]
+		}
+	}
+	return &pb.UpdateMetricsResponse{}, nil
+}
+
+func startTestGRPCServer(t *testing.T, stub *stubMetricsServer) pb.MetricsClient {
+	t.Helper()
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := lis.Addr().String()
+
+	s := grpc.NewServer()
+	pb.RegisterMetricsServer(s, stub)
+	go func() { _ = s.Serve(lis) }()
+	t.Cleanup(s.Stop)
+
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	return pb.NewMetricsClient(conn)
+}
+
+func TestSendBatch_GRPCTransport(t *testing.T) {
+	stub := &stubMetricsServer{}
+	client := startTestGRPCServer(t, stub)
+
+	m := &MetricaAgent{
+		ms:         &runtime.MemStats{},
+		gauges:     &models.GaugeMertics{},
+		counters:   &models.CounterMertics{},
+		grpcClient: client,
+		hostIP:     "203.0.113.9",
+	}
+	runtime.ReadMemStats(m.ms)
+	m.collectMerticsManual()
+	m.SendBatch()
+
+	assert.NotEmpty(t, stub.receivedMetrics, "server must receive metrics via gRPC")
+	assert.Equal(t, "203.0.113.9", stub.receivedXRealIP)
+}
+
+func TestIsRetryableGRPCError(t *testing.T) {
+	assert.True(t, isRetryableGRPCError(status.Error(codes.Unavailable, "down")))
+	assert.True(t, isRetryableGRPCError(status.Error(codes.DeadlineExceeded, "timeout")))
+	assert.False(t, isRetryableGRPCError(status.Error(codes.PermissionDenied, "forbidden")))
+	assert.False(t, isRetryableGRPCError(status.Error(codes.InvalidArgument, "bad")))
+	assert.False(t, isRetryableGRPCError(errors.New("not a grpc error")))
 }
 
 func TestPostRequest_RetriesOnNetworkError(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"metrics/internal/audit"
 	"metrics/internal/config"
 	"metrics/internal/config/db"
+	"metrics/internal/grpcserver"
 	"metrics/internal/logger"
 	"metrics/internal/repository"
 	"metrics/internal/server"
@@ -15,6 +16,7 @@ import (
 	"metrics/pkg/crypto"
 	"net"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -132,13 +134,38 @@ func main() {
 		}
 	}()
 	logger.Log.Info("Server started", zap.String("host", cfg.ServerAddr))
+
+	var grpcSrv *grpcserver.Server
+	if cfg.GRPCAddr != "" {
+		grpcSrv = grpcserver.New(cfg.GRPCAddr, svc, trustedSubnet)
+		go func() {
+			if err := grpcSrv.Start(); err != nil {
+				logger.Log.Fatal("Failed to start gRPC server", zap.Error(err))
+			}
+		}()
+		logger.Log.Info("gRPC server started", zap.String("host", cfg.GRPCAddr))
+	}
+
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Log.Error("Failed to shutdown server", zap.Error(err))
+	var shutdownWG sync.WaitGroup
+	shutdownWG.Add(1)
+	go func() {
+		defer shutdownWG.Done()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			logger.Log.Error("Failed to shutdown server", zap.Error(err))
+		}
+	}()
+	if grpcSrv != nil {
+		shutdownWG.Add(1)
+		go func() {
+			defer shutdownWG.Done()
+			grpcSrv.Stop()
+		}()
 	}
+	shutdownWG.Wait()
 
 	if fileRepo != nil {
 		if err := fileRepo.Save(); err != nil {
