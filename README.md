@@ -55,7 +55,7 @@ go build -ldflags "-X main.buildVersion=v1.0.0 -X main.buildDate=$(date +%Y-%m-%
 
 Флаг `-c` / `-config` или переменная окружения `CONFIG` задают путь до JSON-файла конфигурации. Поддерживаются все опции; приоритет источников (от высшего к низшему): **флаг > переменная окружения > файл > значение по умолчанию**. Если поле не задано ни флагом, ни env — берётся значение из файла (если оно там есть); если и в файле нет — остаётся дефолт.
 
-Интервалы в файле задаются в формате `time.Duration` (например `"1s"`, `"500ms"`), а не числом секунд.
+Интервалы в файле задаются в формате `time.Duration` (например `"1s"`, `"2m"`), но только **целым числом секунд** — дробные значения (`"500ms"`) отклоняются с ошибкой, а не округляются/усекаются молча.
 
 Формат для сервера:
 
@@ -66,7 +66,8 @@ go build -ldflags "-X main.buildVersion=v1.0.0 -X main.buildDate=$(date +%Y-%m-%
     "store_interval": "1s",
     "store_file": "/path/to/file.db",
     "database_dsn": "",
-    "crypto_key": "/path/to/key.pem"
+    "crypto_key": "/path/to/key.pem",
+    "trusted_subnet": ""
 }
 ```
 
@@ -87,6 +88,49 @@ go build -ldflags "-X main.buildVersion=v1.0.0 -X main.buildDate=$(date +%Y-%m-%
 ./server -config server.json
 ./agent -c agent.json
 ```
+
+## Доверенная подсеть (iter27)
+
+Флаг `-t` / переменная окружения `TRUSTED_SUBNET` / поле `trusted_subnet` в JSON-конфиге сервера задают CIDR доверенной подсети (например `192.168.1.0/24`).
+
+- Агент передаёт свой исходящий IP-адрес в заголовке `X-Real-IP` при каждой отправке метрик.
+- Сервер, если `trusted_subnet` задан, проверяет `X-Real-IP` входящего запроса: если заголовок отсутствует, не парсится как IP, или адрес не входит в доверенную подсеть — отвечает `403 Forbidden`.
+- Если `trusted_subnet` не задан (пусто) — ограничений нет, поведение как раньше.
+
+```bash
+./server -t 192.168.1.0/24
+```
+
+## gRPC (iter28)
+
+Помимо HTTP, сервер и агент умеют обмениваться метриками по gRPC (протокол — `api/metrics.proto`, сгенерированный код — `internal/proto`). Флаг `-g` / переменная окружения `GRPC_ADDRESS` задают адрес: для сервера — куда слушать (в дополнение к HTTP, не вместо), для агента — куда подключаться. Если у агента задан `-g`, батчи метрик отправляются **только** по gRPC (метод `Metrics/UpdateMetrics`), HTTP для этого не используется.
+
+Проверка доверенной подсети (см. выше) на gRPC-транспорте реализована через `UnaryInterceptor`: агент передаёт свой IP в метаданных запроса с ключом `x-real-ip`, сервер при несовпадении с `trusted_subnet` возвращает ошибку `codes.PermissionDenied`.
+
+```bash
+./server -g localhost:3200 -t 192.168.1.0/24
+./agent -g localhost:3200
+```
+
+Перегенерация кода из `.proto` (после правки `api/metrics.proto`):
+
+```bash
+make proto
+```
+
+Цель разворачивается в:
+
+```bash
+protoc --go_out=. --go_opt=module=metrics --go_opt=default_api_level=API_OPAQUE \
+       --go-grpc_out=. --go-grpc_opt=module=metrics \
+       api/metrics.proto
+```
+
+Флаг `default_api_level=API_OPAQUE` включает [Opaque API](https://go.dev/blog/protobuf-opaque):
+поля сгенерированных структур скрыты, работа с сообщениями идёт через билдеры
+(`pb.Metric_builder{...}.Build()`), сеттеры и геттеры. Генерировать без этого
+флага нельзя — код перестанет компилироваться. В proto3 уровень API задаётся
+только флагом: file-опция `features.(pb.go).api_level` требует editions.
 
 ## Асимметричное шифрование (iter24)
 

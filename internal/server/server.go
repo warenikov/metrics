@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"errors"
+	"net"
 	"net/http"
 	"time"
 
@@ -51,14 +52,20 @@ type Server struct {
 }
 
 // New creates a Server with a chi router, request logging, gzip compression,
-// and optional HMAC verification and RSA decryption middleware.
+// and optional HMAC verification, RSA decryption, and trusted-subnet
+// middleware.
 // broker may be nil, in which case audit logging is disabled.
 // privKey may be nil, in which case incoming request bodies are assumed to
 // be unencrypted.
-func New(cfg *config.Config, updater MetricsUpdater, getter MetricsGetter, health HealthChecker, broker *audit.Broker, privKey *rsa.PrivateKey) *Server {
+// trustedSubnet may be nil, in which case requests are accepted regardless
+// of their X-Real-IP header.
+func New(cfg *config.Config, updater MetricsUpdater, getter MetricsGetter, health HealthChecker, broker *audit.Broker, privKey *rsa.PrivateKey, trustedSubnet *net.IPNet) *Server {
 	r := chi.NewRouter()
 
 	r.Use(middleware.LoggerMiddleware)
+	if trustedSubnet != nil {
+		r.Use(middleware.TrustedSubnetMiddleware(trustedSubnet))
+	}
 	if privKey != nil {
 		r.Use(middleware.CryptoMiddleware(privKey))
 	}

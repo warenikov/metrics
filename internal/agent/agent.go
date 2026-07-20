@@ -15,6 +15,8 @@ import (
 	"metrics/internal/config"
 	"metrics/internal/logger"
 	models "metrics/internal/model"
+	pb "metrics/internal/proto"
+	"metrics/internal/protoconv"
 	"metrics/pkg/compress"
 	"metrics/pkg/crypto"
 	"net"
@@ -29,6 +31,9 @@ import (
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -36,6 +41,26 @@ var (
 )
 
 var agentRetryDelays = []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
+
+// shutdownGrace bounds how long workers may keep sending after the agent
+// context is cancelled. It lets them drain the batches already queued instead
+// of dropping them, while still capping shutdown: without it a worker could
+// hang for the request timeout plus the whole retry backoff.
+const shutdownGrace = 5 * time.Second
+
+// sleepCtx waits for d and reports whether the wait completed. It returns
+// false as soon as ctx is done, so retry backoff never outlives cancellation.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
 
 func computeHMAC(body []byte, key string) string {
 	mac := hmac.New(sha256.New, []byte(key))
@@ -48,13 +73,49 @@ func isRetryableNetworkError(err error) bool {
 	return errors.As(err, &netErr)
 }
 
+// isRetryableGRPCError reports whether err represents a transient gRPC
+// failure worth retrying, as opposed to a terminal one (e.g. PermissionDenied,
+// InvalidArgument) that would fail identically on every retry.
+func isRetryableGRPCError(err error) bool {
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	switch st.Code() {
+	case codes.Unavailable, codes.DeadlineExceeded, codes.ResourceExhausted, codes.Aborted:
+		return true
+	default:
+		return false
+	}
+}
+
+// localIP returns the outbound IP address of this host: the source address
+// the OS would use to reach an external host. Dialing UDP performs no
+// handshake and sends no packets, so this is safe to call even without
+// network connectivity to the target.
+func localIP() (string, error) {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return "", fmt.Errorf("determine local IP: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return "", fmt.Errorf("determine local IP: unexpected local address type %T", conn.LocalAddr())
+	}
+	return addr.IP.String(), nil
+}
+
 type MetricaAgent struct {
 	ms             *runtime.MemStats
 	gauges         *models.GaugeMertics
 	counters       *models.CounterMertics
 	pubKey         *rsa.PublicKey
+	grpcClient     pb.MetricsClient
 	serverAddr     string
 	key            string
+	hostIP         string
 	cpuUtilization []float64
 	pollInterval   time.Duration
 	sendInterval   time.Duration
@@ -71,8 +132,12 @@ func resolveKey(key string) string {
 	return key
 }
 
-func NewMetricaAgent(cfg *config.Config, pubKey *rsa.PublicKey) *MetricaAgent {
+func NewMetricaAgent(cfg *config.Config, pubKey *rsa.PublicKey, grpcClient pb.MetricsClient) *MetricaAgent {
 	srv := fmt.Sprintf("http://%s", cfg.ServerAddr)
+	hostIP, err := localIP()
+	if err != nil {
+		logger.Log.Error("failed to determine local IP for X-Real-IP header", zap.Error(err))
+	}
 	return &MetricaAgent{
 		ms:           &runtime.MemStats{},
 		gauges:       &models.GaugeMertics{},
@@ -81,7 +146,9 @@ func NewMetricaAgent(cfg *config.Config, pubKey *rsa.PublicKey) *MetricaAgent {
 		sendInterval: time.Duration(cfg.ReportInterval) * time.Second,
 		serverAddr:   srv,
 		key:          resolveKey(cfg.Key),
+		hostIP:       hostIP,
 		pubKey:       pubKey,
+		grpcClient:   grpcClient,
 		rateLimit:    cfg.RateLimit,
 	}
 }
@@ -94,12 +161,22 @@ func (m *MetricaAgent) Run(ctx context.Context) {
 
 	jobs := make(chan []models.Metrics, rateLimit)
 
+	// Workers outlive ctx by shutdownGrace: once the agent is asked to stop,
+	// the sender queues nothing more, but whatever is already in flight or in
+	// the queue still gets a bounded window to reach the server.
+	sendCtx, cancelSend := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelSend()
+	stopGrace := context.AfterFunc(ctx, func() {
+		time.AfterFunc(shutdownGrace, cancelSend)
+	})
+	defer stopGrace()
+
 	var wg sync.WaitGroup
 	for i := 0; i < rateLimit; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			m.worker(jobs)
+			m.worker(sendCtx, jobs)
 		}()
 	}
 
@@ -177,15 +254,25 @@ func (m *MetricaAgent) sender(ctx context.Context, jobs chan<- []models.Metrics)
 	}
 }
 
-func (m *MetricaAgent) worker(jobs <-chan []models.Metrics) {
+func (m *MetricaAgent) worker(ctx context.Context, jobs <-chan []models.Metrics) {
 	for batch := range jobs {
-		data, err := json.Marshal(batch)
-		if err != nil {
-			logger.Log.Error("failed to marshal batch", zap.Error(err))
-			continue
-		}
-		m.postBatchRequest(data)
+		m.sendBatch(ctx, batch)
 	}
+}
+
+// sendBatch sends batch via gRPC if a client is configured, otherwise falls
+// back to the HTTP JSON transport.
+func (m *MetricaAgent) sendBatch(ctx context.Context, batch []models.Metrics) {
+	if m.grpcClient != nil {
+		m.sendBatchGRPC(ctx, batch)
+		return
+	}
+	data, err := json.Marshal(batch)
+	if err != nil {
+		logger.Log.Error("failed to marshal batch", zap.Error(err))
+		return
+	}
+	m.postBatchRequest(ctx, data)
 }
 
 func (m *MetricaAgent) Poll() error {
@@ -250,39 +337,39 @@ func (m *MetricaAgent) collectMerticsManual() {
 	m.counters.PollCount += 29 //29 потому что 28 метрик + сам каунтер
 }
 
-func (m *MetricaAgent) Send() {
+func (m *MetricaAgent) Send(ctx context.Context) {
 	g := m.gauges
-	m.sendGauge("Alloc", g.Alloc)
-	m.sendGauge("BuckHashSys", g.BuckHashSys)
-	m.sendGauge("Frees", g.Frees)
-	m.sendGauge("GCCPUFraction", g.GCCPUFraction)
-	m.sendGauge("GCSys", g.GCSys)
-	m.sendGauge("HeapAlloc", g.HeapAlloc)
-	m.sendGauge("HeapIdle", g.HeapIdle)
-	m.sendGauge("HeapInuse", g.HeapInuse)
-	m.sendGauge("HeapObjects", g.HeapObjects)
-	m.sendGauge("HeapReleased", g.HeapReleased)
-	m.sendGauge("HeapSys", g.HeapSys)
-	m.sendGauge("LastGC", g.LastGC)
-	m.sendGauge("Lookups", g.Lookups)
-	m.sendGauge("MCacheInuse", g.MCacheInuse)
-	m.sendGauge("MCacheSys", g.MCacheSys)
-	m.sendGauge("MSpanInuse", g.MSpanInuse)
-	m.sendGauge("MSpanSys", g.MSpanSys)
-	m.sendGauge("Mallocs", g.Mallocs)
-	m.sendGauge("NextGC", g.NextGC)
-	m.sendGauge("NumForcedGC", g.NumForcedGC)
-	m.sendGauge("NumGC", g.NumGC)
-	m.sendGauge("OtherSys", g.OtherSys)
-	m.sendGauge("PauseTotalNs", g.PauseTotalNs)
-	m.sendGauge("StackInuse", g.StackInuse)
-	m.sendGauge("StackSys", g.StackSys)
-	m.sendGauge("Sys", g.Sys)
-	m.sendGauge("TotalAlloc", g.TotalAlloc)
-	m.sendGauge("RandomValue", g.RandomValue)
+	m.sendGauge(ctx, "Alloc", g.Alloc)
+	m.sendGauge(ctx, "BuckHashSys", g.BuckHashSys)
+	m.sendGauge(ctx, "Frees", g.Frees)
+	m.sendGauge(ctx, "GCCPUFraction", g.GCCPUFraction)
+	m.sendGauge(ctx, "GCSys", g.GCSys)
+	m.sendGauge(ctx, "HeapAlloc", g.HeapAlloc)
+	m.sendGauge(ctx, "HeapIdle", g.HeapIdle)
+	m.sendGauge(ctx, "HeapInuse", g.HeapInuse)
+	m.sendGauge(ctx, "HeapObjects", g.HeapObjects)
+	m.sendGauge(ctx, "HeapReleased", g.HeapReleased)
+	m.sendGauge(ctx, "HeapSys", g.HeapSys)
+	m.sendGauge(ctx, "LastGC", g.LastGC)
+	m.sendGauge(ctx, "Lookups", g.Lookups)
+	m.sendGauge(ctx, "MCacheInuse", g.MCacheInuse)
+	m.sendGauge(ctx, "MCacheSys", g.MCacheSys)
+	m.sendGauge(ctx, "MSpanInuse", g.MSpanInuse)
+	m.sendGauge(ctx, "MSpanSys", g.MSpanSys)
+	m.sendGauge(ctx, "Mallocs", g.Mallocs)
+	m.sendGauge(ctx, "NextGC", g.NextGC)
+	m.sendGauge(ctx, "NumForcedGC", g.NumForcedGC)
+	m.sendGauge(ctx, "NumGC", g.NumGC)
+	m.sendGauge(ctx, "OtherSys", g.OtherSys)
+	m.sendGauge(ctx, "PauseTotalNs", g.PauseTotalNs)
+	m.sendGauge(ctx, "StackInuse", g.StackInuse)
+	m.sendGauge(ctx, "StackSys", g.StackSys)
+	m.sendGauge(ctx, "Sys", g.Sys)
+	m.sendGauge(ctx, "TotalAlloc", g.TotalAlloc)
+	m.sendGauge(ctx, "RandomValue", g.RandomValue)
 
 	// Отправляем Counter метрики
-	m.sendCounter("PollCount", m.counters.PollCount)
+	m.sendCounter(ctx, "PollCount", m.counters.PollCount)
 
 	logger.Log.Debug("Send metrics")
 }
@@ -335,15 +422,42 @@ func (m *MetricaAgent) collectBatch() []models.Metrics {
 	return batch
 }
 
-func (m *MetricaAgent) SendBatch() {
+func (m *MetricaAgent) SendBatch(ctx context.Context) {
 	batch := m.collectBatch()
-	data, err := json.Marshal(batch)
-	if err != nil {
-		logger.Log.Error("failed to marshal batch", zap.Error(err))
-		return
-	}
-	m.postBatchRequest(data)
+	m.sendBatch(ctx, batch)
 	logger.Log.Debug("SendBatch metrics")
+}
+
+// sendBatchGRPC sends batch to the server over gRPC, retrying transient
+// failures with the same backoff schedule as the HTTP transport.
+func (m *MetricaAgent) sendBatchGRPC(ctx context.Context, batch []models.Metrics) {
+	req := pb.UpdateMetricsRequest_builder{Metrics: protoconv.ToProto(batch)}.Build()
+
+	doRequest := func() error {
+		reqCtx := ctx
+		if m.hostIP != "" {
+			reqCtx = metadata.AppendToOutgoingContext(reqCtx, "x-real-ip", m.hostIP)
+		}
+		reqCtx, cancel := context.WithTimeout(reqCtx, 30*time.Second)
+		defer cancel()
+
+		_, err := m.grpcClient.UpdateMetrics(reqCtx, req)
+		return err
+	}
+
+	lastErr := doRequest()
+	for _, d := range agentRetryDelays {
+		if lastErr == nil || !isRetryableGRPCError(lastErr) {
+			break
+		}
+		if !sleepCtx(ctx, d) {
+			break
+		}
+		lastErr = doRequest()
+	}
+	if lastErr != nil {
+		logger.Log.Error("failed to send batch via gRPC", zap.Error(lastErr))
+	}
 }
 
 // prepareBody gzip-compresses data and, if a public key is configured,
@@ -364,7 +478,7 @@ func (m *MetricaAgent) prepareBody(data []byte) (io.Reader, error) {
 	return bytes.NewReader(encrypted), nil
 }
 
-func (m *MetricaAgent) postBatchRequest(data []byte) {
+func (m *MetricaAgent) postBatchRequest(ctx context.Context, data []byte) {
 	var lastErr error
 	client := &http.Client{Timeout: 30 * time.Second}
 
@@ -373,13 +487,16 @@ func (m *MetricaAgent) postBatchRequest(data []byte) {
 		if err != nil {
 			return err
 		}
-		req, err := http.NewRequest(http.MethodPost, m.serverAddr+"/updates/", body)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.serverAddr+"/updates/", body)
 		if err != nil {
 			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
+		if m.hostIP != "" {
+			req.Header.Set("X-Real-IP", m.hostIP)
+		}
 		if m.key != "" {
 			req.Header.Set("HashSHA256", computeHMAC(data, m.key))
 		}
@@ -408,7 +525,9 @@ func (m *MetricaAgent) postBatchRequest(data []byte) {
 		if lastErr == nil || !isRetryableNetworkError(lastErr) {
 			break
 		}
-		time.Sleep(d)
+		if !sleepCtx(ctx, d) {
+			break
+		}
 		lastErr = doRequest()
 	}
 	if lastErr != nil {
@@ -417,26 +536,26 @@ func (m *MetricaAgent) postBatchRequest(data []byte) {
 }
 
 // sendGauge Вспомогательный метод для отправки Gauge
-func (m *MetricaAgent) sendGauge(name string, value float64) {
+func (m *MetricaAgent) sendGauge(ctx context.Context, name string, value float64) {
 	data, err := json.Marshal(&models.Metrics{ID: name, Value: &value, MType: models.Gauge})
 	if err != nil {
 		logger.Log.Error("failed to marshal gauge", zap.Error(err))
 		return
 	}
-	m.postRequest(data, name)
+	m.postRequest(ctx, data, name)
 }
 
 // sendCounter Вспомогательный метод для отправки Counter
-func (m *MetricaAgent) sendCounter(name string, value int64) {
+func (m *MetricaAgent) sendCounter(ctx context.Context, name string, value int64) {
 	data, err := json.Marshal(&models.Metrics{ID: name, Delta: &value, MType: models.Counter})
 	if err != nil {
 		logger.Log.Error("failed to marshal counter", zap.Error(err))
 		return
 	}
-	m.postRequest(data, name)
+	m.postRequest(ctx, data, name)
 }
 
-func (m *MetricaAgent) postRequest(data []byte, name string) {
+func (m *MetricaAgent) postRequest(ctx context.Context, data []byte, name string) {
 	var lastErr error
 	client := &http.Client{Timeout: 30 * time.Second}
 
@@ -445,13 +564,16 @@ func (m *MetricaAgent) postRequest(data []byte, name string) {
 		if err != nil {
 			return err
 		}
-		req, err := http.NewRequest(http.MethodPost, m.serverAddr+"/update/", body)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.serverAddr+"/update/", body)
 		if err != nil {
 			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
+		if m.hostIP != "" {
+			req.Header.Set("X-Real-IP", m.hostIP)
+		}
 		if m.key != "" {
 			req.Header.Set("HashSHA256", computeHMAC(data, m.key))
 		}
@@ -480,7 +602,9 @@ func (m *MetricaAgent) postRequest(data []byte, name string) {
 		if lastErr == nil || !isRetryableNetworkError(lastErr) {
 			break
 		}
-		time.Sleep(d)
+		if !sleepCtx(ctx, d) {
+			break
+		}
 		lastErr = doRequest()
 	}
 	if lastErr != nil {
