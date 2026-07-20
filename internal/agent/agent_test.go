@@ -353,7 +353,7 @@ func (s *stubMetricsServer) UpdateMetrics(ctx context.Context, req *pb.UpdateMet
 	if s.respErr != nil {
 		return nil, s.respErr
 	}
-	return &pb.UpdateMetricsResponse{}, nil
+	return pb.UpdateMetricsResponse_builder{}.Build(), nil
 }
 
 func startTestGRPCServer(t *testing.T, stub *stubMetricsServer) pb.MetricsClient {

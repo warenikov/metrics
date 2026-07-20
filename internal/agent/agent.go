@@ -431,7 +431,7 @@ func (m *MetricaAgent) SendBatch(ctx context.Context) {
 // sendBatchGRPC sends batch to the server over gRPC, retrying transient
 // failures with the same backoff schedule as the HTTP transport.
 func (m *MetricaAgent) sendBatchGRPC(ctx context.Context, batch []models.Metrics) {
-	req := &pb.UpdateMetricsRequest{Metrics: protoconv.ToProto(batch)}
+	req := pb.UpdateMetricsRequest_builder{Metrics: protoconv.ToProto(batch)}.Build()
 
 	doRequest := func() error {
 		reqCtx := ctx

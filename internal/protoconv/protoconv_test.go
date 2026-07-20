@@ -38,8 +38,8 @@ func TestToProto(t *testing.T) {
 
 func TestFromProto(t *testing.T) {
 	in := []*pb.Metric{
-		{Id: "Alloc", Type: pb.Metric_GAUGE, Value: 2.5},
-		{Id: "PollCount", Type: pb.Metric_COUNTER, Delta: 7},
+		pb.Metric_builder{Id: "Alloc", Type: pb.Metric_GAUGE, Value: 2.5}.Build(),
+		pb.Metric_builder{Id: "PollCount", Type: pb.Metric_COUNTER, Delta: 7}.Build(),
 	}
 
 	out := protoconv.FromProto(in)

@@ -30,10 +30,10 @@ func TestMetricsServer_UpdateMetrics_Success(t *testing.T) {
 	updater := &fakeUpdater{}
 	srv := &metricsServer{updater: updater}
 
-	req := &pb.UpdateMetricsRequest{Metrics: []*pb.Metric{
-		{Id: "Alloc", Type: pb.Metric_GAUGE, Value: 1.5},
-		{Id: "PollCount", Type: pb.Metric_COUNTER, Delta: 3},
-	}}
+	req := pb.UpdateMetricsRequest_builder{Metrics: []*pb.Metric{
+		pb.Metric_builder{Id: "Alloc", Type: pb.Metric_GAUGE, Value: 1.5}.Build(),
+		pb.Metric_builder{Id: "PollCount", Type: pb.Metric_COUNTER, Delta: 3}.Build(),
+	}}.Build()
 
 	resp, err := srv.UpdateMetrics(context.Background(), req)
 	require.NoError(t, err)
@@ -50,7 +50,7 @@ func TestMetricsServer_UpdateMetrics_EmptyBatch_NoOp(t *testing.T) {
 	updater := &fakeUpdater{}
 	srv := &metricsServer{updater: updater}
 
-	resp, err := srv.UpdateMetrics(context.Background(), &pb.UpdateMetricsRequest{})
+	resp, err := srv.UpdateMetrics(context.Background(), pb.UpdateMetricsRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.Nil(t, updater.received, "updater must not be called for an empty batch")
@@ -73,9 +73,9 @@ func TestMetricsServer_UpdateMetrics_ErrorMapping(t *testing.T) {
 			updater := &fakeUpdater{err: tt.updaterErr}
 			srv := &metricsServer{updater: updater}
 
-			_, err := srv.UpdateMetrics(context.Background(), &pb.UpdateMetricsRequest{
-				Metrics: []*pb.Metric{{Id: "x", Type: pb.Metric_GAUGE}},
-			})
+			_, err := srv.UpdateMetrics(context.Background(), pb.UpdateMetricsRequest_builder{
+				Metrics: []*pb.Metric{pb.Metric_builder{Id: "x", Type: pb.Metric_GAUGE}.Build()},
+			}.Build())
 
 			require.Error(t, err)
 			assert.Equal(t, tt.wantCode, status.Code(err))
@@ -87,9 +87,9 @@ func TestMetricsServer_UpdateMetrics_InternalErrorNotLeaked(t *testing.T) {
 	updater := &fakeUpdater{err: errors.New("sensitive db connection string leaked here")}
 	srv := &metricsServer{updater: updater}
 
-	_, err := srv.UpdateMetrics(context.Background(), &pb.UpdateMetricsRequest{
-		Metrics: []*pb.Metric{{Id: "x", Type: pb.Metric_GAUGE}},
-	})
+	_, err := srv.UpdateMetrics(context.Background(), pb.UpdateMetricsRequest_builder{
+		Metrics: []*pb.Metric{pb.Metric_builder{Id: "x", Type: pb.Metric_GAUGE}.Build()},
+	}.Build())
 
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "sensitive", "internal error details must not reach the client")

@@ -25,13 +25,13 @@ type metricsServer struct {
 func (s *metricsServer) UpdateMetrics(ctx context.Context, req *pb.UpdateMetricsRequest) (*pb.UpdateMetricsResponse, error) {
 	protoMetrics := req.GetMetrics()
 	if len(protoMetrics) == 0 {
-		return &pb.UpdateMetricsResponse{}, nil
+		return pb.UpdateMetricsResponse_builder{}.Build(), nil
 	}
 
 	if err := s.updater.UpdateBatch(ctx, protoconv.FromProto(protoMetrics)); err != nil {
 		return nil, mapUpdateError(err)
 	}
-	return &pb.UpdateMetricsResponse{}, nil
+	return pb.UpdateMetricsResponse_builder{}.Build(), nil
 }
 
 // mapUpdateError translates a repository/service error into a gRPC status,

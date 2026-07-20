@@ -115,10 +115,22 @@ go build -ldflags "-X main.buildVersion=v1.0.0 -X main.buildDate=$(date +%Y-%m-%
 Перегенерация кода из `.proto` (после правки `api/metrics.proto`):
 
 ```bash
-protoc --go_out=. --go_opt=module=metrics \
+make proto
+```
+
+Цель разворачивается в:
+
+```bash
+protoc --go_out=. --go_opt=module=metrics --go_opt=default_api_level=API_OPAQUE \
        --go-grpc_out=. --go-grpc_opt=module=metrics \
        api/metrics.proto
 ```
+
+Флаг `default_api_level=API_OPAQUE` включает [Opaque API](https://go.dev/blog/protobuf-opaque):
+поля сгенерированных структур скрыты, работа с сообщениями идёт через билдеры
+(`pb.Metric_builder{...}.Build()`), сеттеры и геттеры. Генерировать без этого
+флага нельзя — код перестанет компилироваться. В proto3 уровень API задаётся
+только флагом: file-опция `features.(pb.go).api_level` требует editions.
 
 ## Асимметричное шифрование (iter24)
 

@@ -11,7 +11,17 @@ NUM ?= 1
 SERVER_SRC=./cmd/server
 AGENT_SRC=./cmd/agent
 
-.PHONY: build test_ya test_local clean cover_html
+.PHONY: build proto test_ya test_local clean cover_html
+
+#Генерация Go-кода из api/metrics.proto.
+#default_api_level=API_OPAQUE включает Opaque API: поля сгенерированных
+#структур скрыты, доступ только через билдеры, сеттеры и геттеры.
+#В proto3 этот уровень задаётся только флагом — file-опция
+#features.(pb.go).api_level требует editions.
+proto:
+	protoc --go_out=. --go_opt=module=metrics --go_opt=default_api_level=API_OPAQUE \
+		--go-grpc_out=. --go-grpc_opt=module=metrics \
+		api/metrics.proto
 
 #Сборка обоих бинарников
 build:

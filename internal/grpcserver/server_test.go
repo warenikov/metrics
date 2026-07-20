@@ -66,9 +66,9 @@ func TestGRPCServer_UpdateMetrics_NoTrustedSubnet(t *testing.T) {
 	updater := &stubUpdater{}
 	client := startTestServer(t, updater, nil)
 
-	resp, err := client.UpdateMetrics(context.Background(), &pb.UpdateMetricsRequest{
-		Metrics: []*pb.Metric{{Id: "Alloc", Type: pb.Metric_GAUGE, Value: 42}},
-	})
+	resp, err := client.UpdateMetrics(context.Background(), pb.UpdateMetricsRequest_builder{
+		Metrics: []*pb.Metric{pb.Metric_builder{Id: "Alloc", Type: pb.Metric_GAUGE, Value: 42}.Build()},
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.Len(t, updater.batches, 1)
@@ -82,9 +82,9 @@ func TestGRPCServer_TrustedSubnet_RejectsOutsideIP(t *testing.T) {
 	client := startTestServer(t, updater, subnet)
 
 	ctx := metadata.AppendToOutgoingContext(context.Background(), "x-real-ip", "10.0.0.1")
-	_, err = client.UpdateMetrics(ctx, &pb.UpdateMetricsRequest{
-		Metrics: []*pb.Metric{{Id: "Alloc", Type: pb.Metric_GAUGE, Value: 42}},
-	})
+	_, err = client.UpdateMetrics(ctx, pb.UpdateMetricsRequest_builder{
+		Metrics: []*pb.Metric{pb.Metric_builder{Id: "Alloc", Type: pb.Metric_GAUGE, Value: 42}.Build()},
+	}.Build())
 
 	require.Error(t, err)
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
@@ -98,9 +98,9 @@ func TestGRPCServer_TrustedSubnet_AllowsInsideIP(t *testing.T) {
 	client := startTestServer(t, updater, subnet)
 
 	ctx := metadata.AppendToOutgoingContext(context.Background(), "x-real-ip", "192.168.1.7")
-	resp, err := client.UpdateMetrics(ctx, &pb.UpdateMetricsRequest{
-		Metrics: []*pb.Metric{{Id: "Alloc", Type: pb.Metric_GAUGE, Value: 42}},
-	})
+	resp, err := client.UpdateMetrics(ctx, pb.UpdateMetricsRequest_builder{
+		Metrics: []*pb.Metric{pb.Metric_builder{Id: "Alloc", Type: pb.Metric_GAUGE, Value: 42}.Build()},
+	}.Build())
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)

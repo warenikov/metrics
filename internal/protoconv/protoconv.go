@@ -13,20 +13,20 @@ import (
 func ToProto(metrics []models.Metrics) []*pb.Metric {
 	out := make([]*pb.Metric, len(metrics))
 	for i, m := range metrics {
-		pm := &pb.Metric{Id: m.ID}
+		b := pb.Metric_builder{Id: m.ID}
 		switch m.MType {
 		case models.Gauge:
-			pm.Type = pb.Metric_GAUGE
+			b.Type = pb.Metric_GAUGE
 			if m.Value != nil {
-				pm.Value = *m.Value
+				b.Value = *m.Value
 			}
 		case models.Counter:
-			pm.Type = pb.Metric_COUNTER
+			b.Type = pb.Metric_COUNTER
 			if m.Delta != nil {
-				pm.Delta = *m.Delta
+				b.Delta = *m.Delta
 			}
 		}
-		out[i] = pm
+		out[i] = b.Build()
 	}
 	return out
 }
