@@ -91,7 +91,7 @@ func TestWorkerPoolRespectsRateLimit(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			m.worker(jobs)
+			m.worker(t.Context(), jobs)
 		}()
 	}
 
@@ -224,7 +224,7 @@ func TestSend_PostsToServer(t *testing.T) {
 	}
 	runtime.ReadMemStats(m.ms)
 	m.collectMerticsManual()
-	m.Send()
+	m.Send(t.Context())
 
 	assert.Greater(t, reqCount.Load(), int32(0))
 }
@@ -245,7 +245,7 @@ func TestSendBatch_PostsToServer(t *testing.T) {
 	}
 	runtime.ReadMemStats(m.ms)
 	m.collectMerticsManual()
-	m.SendBatch()
+	m.SendBatch(t.Context())
 
 	assert.Equal(t, int32(1), reqCount.Load())
 }
@@ -267,7 +267,7 @@ func TestSendBatch_SetsXRealIPHeader(t *testing.T) {
 	}
 	runtime.ReadMemStats(m.ms)
 	m.collectMerticsManual()
-	m.SendBatch()
+	m.SendBatch(t.Context())
 
 	assert.Equal(t, "203.0.113.42", receivedIP)
 }
@@ -288,7 +288,7 @@ func TestSendBatch_NoHostIP_OmitsXRealIPHeader(t *testing.T) {
 	}
 	runtime.ReadMemStats(m.ms)
 	m.collectMerticsManual()
-	m.SendBatch()
+	m.SendBatch(t.Context())
 
 	assert.False(t, sawHeader, "X-Real-IP must be omitted when the host IP could not be determined")
 }
@@ -315,7 +315,7 @@ func TestSendBatch_EncryptsBodyWithPublicKey(t *testing.T) {
 	}
 	runtime.ReadMemStats(m.ms)
 	m.collectMerticsManual()
-	m.SendBatch()
+	m.SendBatch(t.Context())
 
 	require.NotEmpty(t, receivedBody)
 
@@ -335,16 +335,23 @@ func TestSendBatch_EncryptsBodyWithPublicKey(t *testing.T) {
 
 type stubMetricsServer struct {
 	pb.UnimplementedMetricsServer
+	// respErr, when set, is returned instead of a successful response.
+	respErr         error
 	receivedXRealIP string
 	receivedMetrics []*pb.Metric
+	calls           atomic.Int64
 }
 
 func (s *stubMetricsServer) UpdateMetrics(ctx context.Context, req *pb.UpdateMetricsRequest) (*pb.UpdateMetricsResponse, error) {
+	s.calls.Add(1)
 	s.receivedMetrics = req.GetMetrics()
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
 		if v := md.Get("x-real-ip"); len(v) > 0 {
 			s.receivedXRealIP = v[0]
 		}
+	}
+	if s.respErr != nil {
+		return nil, s.respErr
 	}
 	return &pb.UpdateMetricsResponse{}, nil
 }
@@ -381,7 +388,7 @@ func TestSendBatch_GRPCTransport(t *testing.T) {
 	}
 	runtime.ReadMemStats(m.ms)
 	m.collectMerticsManual()
-	m.SendBatch()
+	m.SendBatch(t.Context())
 
 	assert.NotEmpty(t, stub.receivedMetrics, "server must receive metrics via gRPC")
 	assert.Equal(t, "203.0.113.9", stub.receivedXRealIP)
@@ -405,7 +412,7 @@ func TestPostRequest_RetriesOnNetworkError(t *testing.T) {
 	srv.Close()
 
 	m := &MetricaAgent{serverAddr: url}
-	m.postRequest([]byte(`{}`), "test")
+	m.postRequest(t.Context(), []byte(`{}`), "test")
 }
 
 func TestPollRuntime_CancelContext(t *testing.T) {
@@ -479,5 +486,86 @@ func BenchmarkCollectMetricsManual(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		m.collectMerticsManual()
+	}
+}
+
+func TestSleepCtx(t *testing.T) {
+	t.Run("завершается по таймеру", func(t *testing.T) {
+		assert.True(t, sleepCtx(t.Context(), time.Millisecond))
+	})
+
+	t.Run("прерывается отменой контекста", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		start := time.Now()
+		assert.False(t, sleepCtx(ctx, time.Hour))
+		assert.Less(t, time.Since(start), time.Second, "отменённый контекст не должен ждать таймер")
+	})
+}
+
+// TestSendBatchGRPC_CancelStopsBackoff проверяет, что отмена контекста
+// прерывает паузу между ретраями: без этого воркер висел бы на сумме всех
+// задержек бэкоффа и блокировал graceful shutdown.
+func TestSendBatchGRPC_CancelStopsBackoff(t *testing.T) {
+	origDelays := agentRetryDelays
+	agentRetryDelays = []time.Duration{time.Hour, time.Hour, time.Hour}
+	defer func() { agentRetryDelays = origDelays }()
+
+	stub := &stubMetricsServer{respErr: status.Error(codes.Unavailable, "down")}
+	client := startTestGRPCServer(t, stub)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	m := &MetricaAgent{grpcClient: client}
+
+	v := 1.0
+	batch := []models.Metrics{{ID: "test", MType: models.Gauge, Value: &v}}
+
+	// Отменяем контекст, пока агент ждёт первую паузу бэкоффа.
+	time.AfterFunc(50*time.Millisecond, cancel)
+
+	done := make(chan struct{})
+	start := time.Now()
+	go func() {
+		defer close(done)
+		m.sendBatchGRPC(ctx, batch)
+	}()
+
+	select {
+	case <-done:
+		assert.Less(t, time.Since(start), 5*time.Second,
+			"отмена контекста должна прервать бэкофф, а не ждать agentRetryDelays")
+	case <-time.After(10 * time.Second):
+		t.Fatal("sendBatchGRPC завис в бэкоффе после отмены контекста")
+	}
+
+	assert.Equal(t, int64(1), stub.calls.Load(), "после отмены ретраев быть не должно")
+}
+
+// TestRun_ReturnsAfterCancel проверяет, что Run не залипает на grace-периоде
+// воркеров, когда очередь пуста.
+func TestRun_ReturnsAfterCancel(t *testing.T) {
+	m := &MetricaAgent{
+		ms:           &runtime.MemStats{},
+		gauges:       &models.GaugeMertics{},
+		counters:     &models.CounterMertics{},
+		pollInterval: time.Hour,
+		sendInterval: time.Hour,
+		rateLimit:    2,
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		m.Run(ctx)
+	}()
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run не завершился после отмены контекста")
 	}
 }
